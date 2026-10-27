@@ -1,227 +1,221 @@
-// ===============================
-// RateThisAlbum - Main Script
-// ===============================
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RateThisAlbum - Universal Music Rating Tool</title>
+  
+  <!-- Correct Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
+  
+  <!-- Correct html2canvas library -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
-const USER_AGENT = "RateThisAlbumApp/1.0.0 (info@ratethisalbum.com)";
-let timerBusqueda;
-
-// DOM Elements
-const inputArtista = document.getElementById('artista');
-const datalistArtistas = document.getElementById('lista-artistas');
-const selectAlbumes = document.getElementById('albumes');
-const listaCanciones = document.getElementById('lista-canciones');
-const viewArtista = document.getElementById('view-artista');
-const viewAlbum = document.getElementById('view-album');
-const coverArt = document.getElementById('cover-art');
-const btnDescargar = document.getElementById('btn-descargar');
-
-// Watermark dinámico
-document.getElementById('marca-agua').textContent =
-  `MADE AT: ${window.location.host.toUpperCase()}`;
-
-
-// ======================================================
-// UTILIDAD: eliminar tildes
-// ======================================================
-function sinTildes(texto) {
-    return texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-}
-
-
-// ======================================================
-// 1. AUTOCOMPLETE DE ARTISTAS
-// ======================================================
-inputArtista.addEventListener('input', () => {
-    clearTimeout(timerBusqueda);
-
-    const busqueda = inputArtista.value.trim();
-    if (busqueda.length < 2) return;
-
-    const busquedaNormalizada = sinTildes(busqueda);
-
-    timerBusqueda = setTimeout(() => {
-        const urls = [
-            `https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(busqueda)}&fmt=json`,
-            `https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(busquedaNormalizada)}&fmt=json`
-        ];
-
-        Promise.all(
-            urls.map(url =>
-                fetch(url, { headers: { "User-Agent": USER_AGENT } }).then(r => r.json())
-            )
-        ).then(results => {
-            datalistArtistas.innerHTML = '';
-
-            const artistas = [];
-
-            results.forEach(r => {
-                if (r.artists) artistas.push(...r.artists);
-            });
-
-            const unicos = new Map();
-            artistas.forEach(a => unicos.set(a.id, a));
-
-            [...unicos.values()].slice(0, 5).forEach(art => {
-                const option = document.createElement('option');
-                option.value = art.name;
-                option.dataset.id = art.id;
-                datalistArtistas.appendChild(option);
-            });
-        })
-        .catch(err => console.error("Error fetching artist:", err));
-    }, 400);
-});
-
-
-// ======================================================
-// 2. DETECTAR SELECCIÓN DE ARTISTA
-// ======================================================
-inputArtista.addEventListener('change', () => {
-    const opciones = Array.from(datalistArtistas.options);
-    const seleccion = opciones.find(opt => opt.value === inputArtista.value);
-
-    if (seleccion) {
-        const idArtista = seleccion.dataset.id;
-        viewArtista.textContent = inputArtista.value;
-        buscarAlbumes(idArtista);
+  <style>
+    :root {
+      --c: #e63946;          /* Accent Color (Red) */
+      --on-c: #fff;          /* Text on accent color */
+      --ink: #1d1a17;        /* Primary text color */
+      --bg: #fbf6ef;         /* Page background (Light cream) */
+      --card: #fff;          /* Card background */
+      --muted: #6b625a;      /* Secondary/muted text */
+      --line: #e9e0d5;       /* Borders and lines */
     }
-});
 
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: 'Nunito', system-ui, sans-serif;
+      font-size: 18px;
+      line-height: 1.45;
+      padding: 28px 16px;
+    }
 
-// ======================================================
-// 3. BUSCAR ÁLBUMES (solo LP)
-// ======================================================
-function buscarAlbumes(idArtista) {
-    fetch(`https://musicbrainz.org/ws/2/release/?artist=${idArtista}&inc=release-groups&limit=100&fmt=json`, {
-        headers: { "User-Agent": USER_AGENT }
-    })
-    .then(res => res.json())
-    .then(data => {
-        selectAlbumes.innerHTML = '<option value="">-- Select an Album --</option>';
+    .wrap { max-width: 650px; margin: 0 auto; }
+    
+    header { margin-bottom: 24px; text-align: center; }
+    header h1 {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 700;
+      font-size: clamp(36px, 7vw, 54px);
+      margin: 0;
+      line-height: 1.1;
+      text-transform: uppercase;
+    }
 
-        if (!data.releases) return;
+    /* Color ONLY for "This" */
+    header h1 .highlight {
+      color: var(--c);
+    }
 
-        const discosUnicos = new Set();
+    header p { margin: 8px 0 0; color: var(--muted); font-size: 16px; }
 
-        data.releases.forEach(rel => {
-            const grupo = rel["release-group"];
+    .panel {
+      background: var(--card);
+      border: 2px solid var(--line);
+      border-radius: 22px;
+      padding: 24px;
+      margin-bottom: 20px;
+    }
 
-            if (grupo?.["primary-type"] !== "Album") return;
+    .step {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 600;
+      font-size: 13px;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
 
-            if (!discosUnicos.has(rel.title)) {
-                discosUnicos.add(rel.title);
+    h2 {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 600;
+      font-size: 24px;
+      margin: 2px 0 14px;
+      line-height: 1.2;
+    }
 
-                const option = document.createElement('option');
-                option.value = rel.id;
-                option.textContent = rel.title;
-                option.dataset.group = grupo.id;
-                selectAlbumes.appendChild(option);
-            }
-        });
+    .buscador-group { display: flex; flex-direction: column; gap: 12px; }
+    input[type=text], select {
+      font: inherit;
+      font-size: 18px;
+      width: 100%;
+      padding: 12px 16px;
+      border: 2px solid var(--line);
+      border-radius: 14px;
+      background: #fff;
+      color: var(--ink);
+    }
+    input[type=text]:focus, select:focus { border-color: var(--ink); outline: none; }
 
-        selectAlbumes.disabled = false;
-    })
-    .catch(err => console.error("Error fetching albums:", err));
-}
+    #zona-captura {
+      background: var(--card);
+      border: 2px solid var(--line);
+      border-radius: 22px;
+      padding: 30px;
+      margin-top: 24px;
+      position: relative;
+    }
 
+    .header-poster {
+      text-align: center;
+      margin-bottom: 24px;
+      border-bottom: 2px dashed var(--line);
+      padding-bottom: 16px;
+    }
+    .header-poster h3 {
+      font-family: 'Oswald', sans-serif;
+      font-size: 28px;
+      margin: 0;
+      text-transform: uppercase;
+    }
+    .header-poster p { margin: 4px 0 0; color: var(--muted); font-weight: 700; }
 
-// ======================================================
-// 4. BUSCAR PORTADA DEL ÁLBUM
-// ======================================================
-function cargarPortada(idReleaseGroup) {
-    const url = `https://coverartarchive.org/release-group/${idReleaseGroup}/front`;
+    .cancion-item {
+      display: grid;
+      grid-template-columns: 1fr 70px;
+      gap: 14px;
+      align-items: center;
+      padding: 12px 0;
+      border-top: 2px dashed var(--line);
+    }
+    .cancion-item:first-of-type { border-top: 0; }
+    .cancion-nombre { font-size: 17px; font-weight: 700; color: var(--ink); }
+    
+    .nota-input {
+      font-family: 'Oswald', sans-serif;
+      font-size: 20px;
+      font-weight: 600;
+      height: 44px;
+      text-align: center;
+      border: 2px solid var(--ink);
+      border-radius: 10px;
+      background: #fff;
+    }
 
-    fetch(url)
-        .then(res => {
-            if (!res.ok) throw new Error("No cover");
-            coverArt.src = url;
-        })
-        .catch(() => {
-            coverArt.src =
-              "https://upload.wikimedia.org/wikipedia/commons/thumb/6/65/No-Image-Placeholder.svg/600px-No-Image-Placeholder.svg.png";
-        });
-}
+    .watermark {
+      text-align: center;
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 24px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
 
+    .big-button {
+      display: block;
+      width: 100%;
+      margin-top: 20px;
+      padding: 16px;
+      border-radius: 18px;
+      border: 3px solid var(--ink);
+      background: var(--c);
+      color: var(--on-c);
+      font-family: 'Oswald', sans-serif;
+      font-weight: 700;
+      font-size: 22px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      cursor: pointer;
+      box-shadow: 0 5px 0 var(--ink);
+      transition: transform 0.1s, box-shadow 0.1s;
+    }
+    .big-button:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 2px 0 var(--ink); }
+    .big-button:disabled { background: #ccc; box-shadow: none; border-color: #aaa; cursor: not-allowed; }
+  </style>
+</head>
+<body>
 
-// ======================================================
-// 5. BUSCAR TRACKLIST DEL ÁLBUM
-// ======================================================
-selectAlbumes.addEventListener('change', () => {
-    const idAlbum = selectAlbumes.value;
-    if (!idAlbum) return;
+<div class="wrap">
+  <header>
+    <h1>Rate<span class="highlight">This</span>Album</h1>
+    <p>Search for an artist, pick an album, rate each track from 1 to 10, and download your custom card to share on social media.</p>
+  </header>
 
-    const idGrupo = selectAlbumes.options[selectAlbumes.selectedIndex].dataset.group;
+  <main>
+    <section class="panel">
+      <div class="step">Setup</div>
+      <h2>Find Your Album</h2>
+      <div class="buscador-group">
+        <input type="text" id="artista" placeholder="Type an artist (e.g., Rosalía, Daft Punk...)" list="lista-artistas" autocomplete="off">
+        <datalist id="lista-artistas"></datalist>
 
-    viewAlbum.textContent = selectAlbumes.options[selectAlbumes.selectedIndex].text;
+        <select id="albumes" disabled>
+          <option value="">-- Choose an artist first --</option>
+        </select>
+      </div>
+    </section>
 
-    cargarPortada(idGrupo);
+    <div id="zona-captura">
+      <div class="header-poster">
+          <img id="cover-art" src="" alt="Album Cover" style="
+              width: 180px;
+              height: 180px;
+              object-fit: cover;
+              border-radius: 12px;
+              border: 3px solid var(--line);
+              margin: 0 auto 16px auto;
+              display: block;
+          ">
+          <h3 id="view-album">Your Album</h3>
+          <p id="view-artista">Artist</p>
+      </div>
+      
+      <div id="lista-canciones">
+        <p style="text-align:center; color:var(--muted); font-size:16px;">Select an album to generate the tracklist.</p>
+      </div>
 
-    fetch(`https://musicbrainz.org/ws/2/release/${idAlbum}?inc=recordings&fmt=json`, {
-        headers: { "User-Agent": USER_AGENT }
-    })
-    .then(res => res.json())
-    .then(data => {
-        listaCanciones.innerHTML = '';
+      <div class="watermark" id="marca-agua">RATETHISALBUM</div>
+    </div>
 
-        const tracks = data.media?.[0]?.tracks || [];
+    <button class="big-button" id="btn-descargar" disabled>Save Image</button>
+  </main>
+</div>
 
-        if (tracks.length === 0) {
-            listaCanciones.innerHTML =
-                '<p style="text-align:center;color:var(--muted)">No tracks found for this album.</p>';
-            return;
-        }
-
-        tracks.forEach((track, index) => {
-            const item = document.createElement('div');
-            item.className = 'cancion-item';
-
-            const select = document.createElement('select');
-            select.className = "nota-select";
-
-            const empty = document.createElement('option');
-            empty.value = "";
-            empty.textContent = "-";
-            select.appendChild(empty);
-
-            for (let i = 0; i <= 10; i++) {
-                const opt = document.createElement('option');
-                opt.value = i;
-                opt.textContent = i;
-                select.appendChild(opt);
-            }
-
-            item.innerHTML = `
-                <span class="cancion-nombre">${index + 1}. ${track.title}</span>
-            `;
-            item.appendChild(select);
-
-            listaCanciones.appendChild(item);
-        });
-
-        btnDescargar.disabled = false;
-    })
-    .catch(err => console.error("Error fetching tracklist:", err));
-});
-
-
-// ======================================================
-// 6. GENERAR IMAGEN Y DESCARGAR
-// ======================================================
-btnDescargar.addEventListener('click', () => {
-    const contenedor = document.getElementById('zona-captura');
-
-    const selects = contenedor.querySelectorAll('.nota-select');
-    selects.forEach(sel => sel.setAttribute('value', sel.value));
-
-    html2canvas(contenedor, {
-        scale: 2,
-        backgroundColor: '#ffffff',
-        logging: false,
-        useCORS: true
-    }).then(canvas => {
-        const link = document.createElement('a');
-        link.download = `${viewAlbum.textContent.replace(/[^a-z0-9]/gi, '_')}_rate.png`;
-        link.href = canvas.toDataURL('image/png');
-        link.click();
-    });
-});
+<script src="app.js"></script>
+</body>
+</html>
