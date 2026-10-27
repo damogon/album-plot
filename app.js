@@ -19,10 +19,9 @@ inputArtista.addEventListener('input', () => {
     if (busqueda.length < 2) return;
 
     timerBusqueda = setTimeout(() => {
-        // FIXED: Re-structured the API endpoints with explicit backticks, paths, and search terms
-        fetch(`https://musicbrainz.org{encodeURIComponent(busqueda)}&fmt=json`, {
-            headers: { 'User-Agent': USER_AGENT }
-        })
+    fetch(`https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(busqueda)}&fmt=json`, {
+        headers: { 'User-Agent': USER_AGENT }
+    })
         .then(res => res.json())
         .then(data => {
             datalistArtistas.innerHTML = '';
@@ -52,8 +51,7 @@ inputArtista.addEventListener('change', () => {
 
 // 2. FETCH ALBUMS
 function buscarAlbumes(idArtista) {
-    // FIXED: Corrected full endpoint lookup query syntax
-    fetch(`https://musicbrainz.org{idArtista}&limit=40&fmt=json`, {
+    fetch(`https://musicbrainz.org/ws/2/release/?artist=${idArtista}&limit=40&fmt=json`, {
         headers: { 'User-Agent': USER_AGENT }
     })
     .then(res => res.json())
@@ -82,8 +80,7 @@ selectAlbumes.addEventListener('change', () => {
 
     viewAlbum.textContent = selectAlbumes.options[selectAlbumes.selectedIndex].text;
 
-    // FIXED: Corrected path variables to query deep recordings within individual albums
-    fetch(`https://musicbrainz.org{idAlbum}?inc=recordings&fmt=json`, {
+    fetch(`https://musicbrainz.org/ws/2/release/${idAlbum}?inc=recordings&fmt=json`, {
         headers: { 'User-Agent': USER_AGENT }
     })
     .then(res => res.json())
