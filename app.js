@@ -52,8 +52,9 @@ inputArtista.addEventListener('input', () => {
     const textoUsuarioLimpio = limpiarTexto(busqueda);
 
     timerBusqueda = setTimeout(() => {
-        // FIXED: Rebuilt absolute endpoint strings with appropriate search paths
-        const url = `https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(textoUsuarioLimpio)}&limit=40&fmt=json`;
+        // CORREGIDO: Eliminada la barra '/' antes de '?query='
+        const url = `https://musicbrainz.org/ws/2/artist?query=${encodeURIComponent(textoUsuarioLimpio)}&limit=40&fmt=json`;
+        
         fetch(url, { headers: { "User-Agent": USER_AGENT } })
             .then(res => res.json())
             .then(async data => {
@@ -77,8 +78,8 @@ inputArtista.addEventListener('input', () => {
 
                     if (nombreApiLimpio.includes(textoUsuarioLimpio)) {
                         try {
-                            // FIXED: Added precise query lookup strings to cross-reference studio releases
-                            const subQueryUrl = `https://musicbrainz.org{art.id}&inc=release-groups&limit=30&fmt=json`;
+                            // CORREGIDO: Reconstruido el endpoint completo con /ws/2/release?artist= e interpolación ${}
+                            const subQueryUrl = `https://musicbrainz.org/ws/2/release?artist=${art.id}&inc=release-groups&limit=30&fmt=json`;
                             const response = await fetch(subQueryUrl, { headers: { "User-Agent": USER_AGENT } });
                             const albumData = await response.json();
 
@@ -86,7 +87,7 @@ inputArtista.addEventListener('input', () => {
                             const tieneLPs = albumData.releases?.some(rel => rel["release-group"]?.["primary-type"] === "Album");
                             
                             if (tieneLPs) {
-                                artistasValidos.push(art);
+                                artistasValidados.push(art);
                             }
                         } catch (err) {
                             console.error("Subquery validation dropped for artist ID:", art.id, err);
@@ -94,7 +95,7 @@ inputArtista.addEventListener('input', () => {
                     }
 
                     // Cut evaluation early once we collect enough clean results
-                    if (artistasValidos.length >= 6) break;
+                    if (artistasValidados.length >= 6) break;
                 }
 
                 if (artistasValidos.length === 0) {
@@ -142,8 +143,8 @@ inputArtista.addEventListener('input', () => {
 // 2. FETCH ALBUMS (LPs Only)
 // ======================================================
 function buscarAlbumes(idArtista) {
-    // FIXED: Corrected path parameter concatenation
-    fetch(`https://musicbrainz.org/ws/2/release/?artist=${idArtista}&inc=release-groups&limit=100&fmt=json`, {
+    // CORREGIDO: Eliminada la barra '/' antes de '?artist='
+    fetch(`https://musicbrainz.org/ws/2/release?artist=${idArtista}&inc=release-groups&limit=100&fmt=json`, {
         headers: { "User-Agent": USER_AGENT }
     })
     .then(res => res.json())
