@@ -13,16 +13,18 @@
 
   <style>
     :root {
-      --c: #e63946;          /* Accent Color (Red) */
+      --c: #e63946;          /* Accent Color (cambia con el selector) */
       --on-c: #fff;          /* Text on accent color */
       --ink: #1d1a17;        /* Primary text color */
-      --bg: #fbf6ef;         /* Page background (Light cream) */
+      --bg: #fbf6ef;         /* Page background */
       --card: #fff;          /* Card background */
       --muted: #6b625a;      /* Secondary/muted text */
       --line: #e9e0d5;       /* Borders and lines */
     }
 
     * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+
     body {
       margin: 0;
       background: var(--bg);
@@ -70,6 +72,16 @@
       font-size: 24px;
       margin: 2px 0 14px;
       line-height: 1.2;
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    h2 .contador {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--muted);
+      letter-spacing: .05em;
     }
 
     .buscador-group { display: flex; flex-direction: column; gap: 12px; }
@@ -85,63 +97,181 @@
     }
     input[type=text]:focus, select:focus { border-color: var(--ink); outline: none; }
 
-    /* ---------- Tracklist (input) ---------- */
+    /* ---------- Tracklist: botones de nota ---------- */
     .cancion-item {
-      display: grid;
-      grid-template-columns: 1fr 80px;
-      gap: 14px;
-      align-items: center;
-      padding: 12px 0;
+      padding: 14px 0;
       border-top: 2px dashed var(--line);
     }
-    .cancion-item:first-of-type { border-top: 0; }
-    .cancion-nombre { font-size: 17px; font-weight: 700; color: var(--ink); }
-
-    .nota-select {
+    .cancion-item:first-of-type { border-top: 0; padding-top: 0; }
+    .cancion-nombre {
+      display: block;
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--ink);
+      margin-bottom: 8px;
+    }
+    .notas {
+      display: grid;
+      grid-template-columns: repeat(11, 1fr);
+      gap: 5px;
+    }
+    .nota-btn {
       font-family: 'Oswald', sans-serif;
-      font-size: 20px;
+      font-size: 17px;
       font-weight: 600;
-      height: 44px;
-      padding: 0 8px;
-      text-align: center;
-      text-align-last: center;
-      border: 2px solid var(--ink);
+      height: 42px;
+      padding: 0;
+      border: 2px solid var(--line);
       border-radius: 10px;
       background: #fff;
+      color: var(--ink);
+      cursor: pointer;
+      transition: transform .08s;
     }
+    .nota-btn:hover { border-color: var(--ink); }
+    .nota-btn:active { transform: scale(.94); }
+    .nota-btn.sel {
+      background: var(--c);
+      color: var(--on-c);
+      border-color: var(--ink);
+    }
+    .nota-btn:focus-visible,
+    .swatch:focus-visible,
+    .seg:focus-visible,
+    .chip:focus-visible,
+    .sec-button:focus-visible,
+    .big-button:focus-visible {
+      outline: 3px solid var(--ink);
+      outline-offset: 2px;
+    }
+
+    /* ---------- Personalización ---------- */
+    .opcion-label {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 600;
+      font-size: 13px;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin: 4px 0 10px;
+    }
+    .opcion-label:not(:first-of-type) { margin-top: 20px; }
+
+    .swatches { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+    .swatch {
+      width: 42px;
+      height: 42px;
+      padding: 0;
+      border-radius: 50%;
+      border: 3px solid #fff;
+      box-shadow: 0 0 0 2px var(--line);
+      cursor: pointer;
+    }
+    .swatch.sel { box-shadow: 0 0 0 3px var(--ink); }
+
+    .chip {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 600;
+      font-size: 15px;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+      padding: 9px 16px;
+      border: 2px solid var(--ink);
+      border-radius: 999px;
+      background: #fff;
+      color: var(--ink);
+      cursor: pointer;
+    }
+
+    .segmentado { display: flex; gap: 10px; }
+    .seg {
+      flex: 1;
+      font-family: 'Oswald', sans-serif;
+      font-weight: 600;
+      font-size: 17px;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+      padding: 12px 10px;
+      border: 2px solid var(--ink);
+      border-radius: 14px;
+      background: #fff;
+      color: var(--ink);
+      cursor: pointer;
+    }
+    .seg.sel { background: var(--ink); color: #fff; }
 
     /* ---------- Preview (lo que se descarga) ---------- */
-    #zona-captura {
-      background: var(--card);
-      border: 2px solid var(--line);
-      border-radius: 22px;
-      padding: 30px 24px 22px;
-      margin-top: 8px;
-      position: relative;
-    }
+    /* La tarjeta tiene tamaño fijo (540 px) y se reduce con transform en pantallas pequeñas */
+    #preview-escala { position: relative; width: 100%; }
 
-    .header-poster {
+    #zona-captura {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 540px;
+      transform-origin: 0 0;
+      background: #fff;
+      border-radius: 22px;
+      box-shadow: 0 0 0 2px var(--line);
+      padding: 24px 24px 16px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    #zona-captura.fmt-square { height: 540px; }
+    #zona-captura.fmt-story  { height: 960px; padding-top: 56px; padding-bottom: 40px; }
+
+    .brand {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 700;
+      font-size: 22px;
+      line-height: 1;
+      letter-spacing: .04em;
+      text-transform: uppercase;
       text-align: center;
-      margin-bottom: 18px;
-      border-bottom: 2px dashed var(--line);
-      padding: 0 90px 16px; /* hueco a los lados para la nota media */
+      margin-bottom: 14px;
     }
-    .header-poster img {
-      width: 130px;
-      height: 130px;
-      object-fit: cover;
-      border-radius: 12px;
-      border: 2px solid var(--line);
-      margin-bottom: 12px;
-    }
+    .fmt-story .brand { font-size: 26px; margin-bottom: 18px; }
+    .brand span { color: var(--c); }
+
+    .header-poster { border-bottom: 2px dashed var(--line); }
     .header-poster h3 {
       font-family: 'Oswald', sans-serif;
-      font-size: 28px;
       margin: 0;
       line-height: 1.15;
       text-transform: uppercase;
+      overflow-wrap: anywhere;
     }
     .header-poster p { margin: 4px 0 0; color: var(--muted); font-weight: 700; }
+    .header-poster img {
+      display: none; /* oculta hasta que se elige un álbum */
+      object-fit: cover;
+      border-radius: 12px;
+      border: 2px solid var(--line);
+    }
+    .header-poster img.visible { display: block; }
+    .titulos { min-width: 0; }
+
+    /* Formato cuadrado: cabecera compacta en horizontal */
+    .fmt-square .header-poster {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      text-align: left;
+      padding: 0 96px 12px 0;
+      margin-bottom: 6px;
+    }
+    .fmt-square .header-poster img.visible { width: 84px; height: 84px; flex: none; }
+    .fmt-square .header-poster h3 { font-size: 24px; }
+
+    /* Formato story: cabecera vertical y centrada */
+    .fmt-story .header-poster {
+      text-align: center;
+      padding: 0 0 16px;
+      margin-bottom: 10px;
+    }
+    .fmt-story .header-poster img.visible { width: 170px; height: 170px; margin: 0 auto 12px; }
+    .fmt-story .header-poster h3 { font-size: 30px; }
 
     /* Nota media en la esquina */
     .nota-media {
@@ -161,7 +291,9 @@
       justify-content: center;
       font-family: 'Oswald', sans-serif;
       line-height: 1;
+      z-index: 2;
     }
+    .fmt-story .nota-media { top: 48px; }
     .nota-media .valor { font-size: 32px; font-weight: 700; }
     .nota-media .etiqueta {
       font-size: 11px;
@@ -170,21 +302,45 @@
       margin-top: 3px;
     }
 
-    #grafica { display: block; width: 100%; height: auto; }
+    .chart-wrap { position: relative; flex: 1; min-height: 0; }
+    #grafica { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
     .watermark {
       text-align: center;
-      font-size: 12px;
+      font-size: 11px;
       color: var(--muted);
-      margin-top: 12px;
+      margin-top: 8px;
       font-weight: 700;
       letter-spacing: 0.05em;
+    }
+
+    /* ---------- Progreso y acciones ---------- */
+    .progreso { margin-top: 20px; }
+    .progreso-barra {
+      height: 10px;
+      background: var(--line);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .progreso-fill {
+      height: 100%;
+      width: 0;
+      background: var(--c);
+      border-radius: 999px;
+      transition: width .25s;
+    }
+    .progreso-texto {
+      margin: 8px 0 0;
+      text-align: center;
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--muted);
     }
 
     .big-button {
       display: block;
       width: 100%;
-      margin-top: 20px;
+      margin-top: 14px;
       padding: 16px;
       border-radius: 18px;
       border: 3px solid var(--ink);
@@ -200,13 +356,34 @@
       transition: transform 0.1s, box-shadow 0.1s;
     }
     .big-button:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 2px 0 var(--ink); }
-    .big-button:disabled { background: #ccc; box-shadow: none; border-color: #aaa; cursor: not-allowed; }
+    .big-button:disabled { background: #ccc; box-shadow: none; border-color: #aaa; color: #fff; cursor: not-allowed; }
+
+    .acciones-sec { display: flex; gap: 12px; margin-top: 16px; }
+    .sec-button {
+      flex: 1;
+      padding: 12px;
+      border-radius: 14px;
+      border: 3px solid var(--ink);
+      background: #fff;
+      color: var(--ink);
+      font-family: 'Oswald', sans-serif;
+      font-weight: 600;
+      font-size: 18px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      cursor: pointer;
+      box-shadow: 0 4px 0 var(--ink);
+      transition: transform 0.1s, box-shadow 0.1s;
+    }
+    .sec-button:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 2px 0 var(--ink); }
+    .sec-button:disabled { color: #aaa; border-color: #ccc; box-shadow: none; cursor: not-allowed; }
+
+    .aviso { margin: 12px 0 0; text-align: center; font-size: 14px; font-weight: 700; color: var(--c); min-height: 1em; }
 
     @media (max-width: 480px) {
-      .header-poster { padding: 0 0 16px; }
-      .nota-media { width: 64px; height: 64px; top: 12px; right: 12px; }
-      .nota-media .valor { font-size: 24px; }
-      .nota-media .etiqueta { font-size: 9px; }
+      body { padding: 20px 12px; }
+      .panel { padding: 18px; }
+      .notas { grid-template-columns: repeat(6, 1fr); }
     }
   </style>
 </head>
@@ -249,39 +426,82 @@
     <!-- Paso 2: puntuar -->
     <section class="panel">
       <div class="step">Step 2</div>
-      <h2>Rate Each Track</h2>
+      <h2>Rate Each Track <span class="contador" id="contador"></span></h2>
       <div id="lista-canciones">
         <p style="text-align:center; color:var(--muted); font-size:16px; margin:0;">Select an album to generate the tracklist.</p>
       </div>
     </section>
 
-    <!-- Paso 3: preview (esto es lo que se descarga) -->
+    <!-- Paso 3: personalizar -->
     <section class="panel">
       <div class="step">Step 3</div>
+      <h2>Make It Yours</h2>
+
+      <div class="opcion-label">Accent color</div>
+      <div class="swatches" id="swatches">
+        <button type="button" class="swatch sel" data-color="#e63946" style="background:#e63946" aria-label="Red"></button>
+        <button type="button" class="swatch" data-color="#e8590c" style="background:#e8590c" aria-label="Orange"></button>
+        <button type="button" class="swatch" data-color="#2b9348" style="background:#2b9348" aria-label="Green"></button>
+        <button type="button" class="swatch" data-color="#2563eb" style="background:#2563eb" aria-label="Blue"></button>
+        <button type="button" class="swatch" data-color="#7c3aed" style="background:#7c3aed" aria-label="Purple"></button>
+        <button type="button" class="swatch" data-color="#d6336c" style="background:#d6336c" aria-label="Pink"></button>
+        <button type="button" class="chip" id="btn-sorpresa">Surprise me</button>
+      </div>
+
+      <div class="opcion-label">Image format</div>
+      <div class="segmentado" id="formatos">
+        <button type="button" class="seg sel" data-fmt="square">Square 1:1</button>
+        <button type="button" class="seg" data-fmt="story">Story 9:16</button>
+      </div>
+    </section>
+
+    <!-- Paso 4: preview (esto es lo que se descarga) -->
+    <section class="panel">
+      <div class="step">Step 4</div>
       <h2>Your Rating</h2>
 
-      <div id="zona-captura">
-        <div class="nota-media" title="Average rating">
-          <span class="valor" id="nota-media-valor">–</span>
-          <span class="etiqueta">AVG</span>
+      <div id="preview-escala">
+        <div id="zona-captura" class="fmt-square">
+          <div class="nota-media" title="Average rating">
+            <span class="valor" id="nota-media-valor">–</span>
+            <span class="etiqueta">AVG</span>
+          </div>
+
+          <div class="brand">Album<span>Plot</span></div>
+
+          <div class="header-poster">
+            <img id="cover-art" alt="">
+            <div class="titulos">
+              <h3 id="view-album">Your Album</h3>
+              <p id="view-artista">Artist</p>
+            </div>
+          </div>
+
+          <div class="chart-wrap">
+            <canvas id="grafica"></canvas>
+          </div>
+
+          <div class="watermark" id="marca-agua">MADE AT: damogon.github.io/album-plot/</div>
         </div>
+      </div>
 
-        <div class="header-poster">
-          <img id="cover-art" alt="Album cover">
-          <h3 id="view-album">Your Album</h3>
-          <p id="view-artista">Artist</p>
-        </div>
-
-        <canvas id="grafica" width="2000" height="1200"></canvas>
-
-        <div class="watermark" id="marca-agua">MADE AT: damogon.github.io/rate-this-album/</div>
+      <div class="progreso">
+        <div class="progreso-barra"><div class="progreso-fill" id="progreso-fill"></div></div>
+        <p class="progreso-texto" id="progreso-texto" aria-live="polite">Select an album to start rating.</p>
       </div>
 
       <button class="big-button" id="btn-descargar" disabled>Save Image</button>
+
+      <div class="acciones-sec">
+        <button type="button" class="sec-button" id="btn-compartir" hidden disabled>Share</button>
+        <button type="button" class="sec-button" id="btn-borrar" disabled>Clear ratings</button>
+      </div>
+
+      <p class="aviso" id="aviso" aria-live="polite"></p>
     </section>
   </main>
 </div>
 
-<script src="app.js"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>
