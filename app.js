@@ -4,6 +4,12 @@
 
 const MB_BASE = "https://musicbrainz.org/ws/2";
 const CAA_BASE = "https://coverartarchive.org";
+const SITE_URL = "damogon.github.io/album-plot/";
+
+const CARD_W = 540;     // ancho fijo de la tarjeta (px de diseño)
+const EXPORT_W = 1080;  // ancho de la imagen exportada
+
+const COLORES_SORPRESA = ["#e63946", "#e8590c", "#2b9348", "#2563eb", "#7c3aed", "#d6336c"];
 
 // Placeholder embebido (SVG en data URI) para portadas que no existen
 const PLACEHOLDER_COVER =
@@ -20,6 +26,7 @@ let timerBusqueda;
 let peticionArtista = 0; // para descartar respuestas antiguas
 let peticionAlbum = 0;
 let titulosActuales = []; // nombres de las canciones del álbum elegido
+let notas = [];           // nota de cada canción (null = sin puntuar)
 
 // DOM Elements
 const inputArtista = document.getElementById('artista');
@@ -29,14 +36,19 @@ const listaCanciones = document.getElementById('lista-canciones');
 const viewArtista = document.getElementById('view-artista');
 const viewAlbum = document.getElementById('view-album');
 const btnDescargar = document.getElementById('btn-descargar');
+const btnCompartir = document.getElementById('btn-compartir');
+const btnBorrar = document.getElementById('btn-borrar');
 const canvasGrafica = document.getElementById('grafica');
 const notaMediaValor = document.getElementById('nota-media-valor');
+const card = document.getElementById('zona-captura');
+const previewEscala = document.getElementById('preview-escala');
+const progresoFill = document.getElementById('progreso-fill');
+const progresoTexto = document.getElementById('progreso-texto');
+const contador = document.getElementById('contador');
+const aviso = document.getElementById('aviso');
 
 // Marca de agua con el enlace completo
-if (document.getElementById('marca-agua')) {
-    document.getElementById('marca-agua').textContent =
-        'MADE AT: damogon.github.io/rate-this-album/';
-}
+document.getElementById('marca-agua').textContent = `MADE AT: ${SITE_URL}`;
 
 // Cerrar el desplegable al hacer clic fuera
 document.addEventListener('click', (e) => {
@@ -46,7 +58,7 @@ document.addEventListener('click', (e) => {
 });
 
 // ======================================================
-// UTILIDAD: fetch JSON con comprobación de errores
+// UTILIDADES
 // ======================================================
 async function fetchJSON(url) {
     const res = await fetch(url);
@@ -54,22 +66,53 @@ async function fetchJSON(url) {
     return res.json();
 }
 
-// ======================================================
-// GRÁFICA (canvas): notas por canción + nota media
-// ======================================================
-function obtenerNotas() {
-    return Array.from(listaCanciones.querySelectorAll('.nota-select'))
-        .map(sel => sel.value === '' ? null : Number(sel.value));
-}
-
 function recortar(texto, max) {
     return texto.length > max ? texto.slice(0, max - 1).trimEnd() + '…' : texto;
 }
 
+function notasPuntuadas() {
+    return notas.filter(v => v !== null);
+}
+
+function todasPuntuadas() {
+    return titulosActuales.length > 0 &&
+           notas.length === titulosActuales.length &&
+           notas.every(v => v !== null);
+}
+
+function nombreArchivo() {
+    return `${viewAlbum.textContent.replace(/[^a-z0-9]/gi, '_')}_albumplot.png`;
+}
+
+function mostrarAviso(texto) {
+    aviso.textContent = texto || '';
+}
+
+// ======================================================
+// ESCALA DE LA TARJETA (se reduce en pantallas pequeñas)
+// ======================================================
+function ajustarEscala() {
+    const cw = previewEscala.clientWidth;
+    if (!cw) return;
+    const k = Math.min(1, cw / CARD_W);
+    const offset = (cw - CARD_W * k) / 2;
+    card.style.transform = `translate(${offset}px, 0) scale(${k})`;
+    previewEscala.style.height = `${card.offsetHeight * k}px`;
+}
+window.addEventListener('resize', ajustarEscala);
+
+// ======================================================
+// GRÁFICA (canvas): notas por canción
+// ======================================================
 function dibujarGrafica() {
     if (!canvasGrafica) return;
 
-    const W = 1000, H = 600, S = 2; // tamaño lógico y factor de nitidez
+    const wrap = canvasGrafica.parentElement;
+    const W = wrap.clientWidth;
+    const H = wrap.clientHeight;
+    if (!W || !H) return;
+
+    const S = 2; // factor de nitidez
     canvasGrafica.width = W * S;
     canvasGrafica.height = H * S;
 
@@ -82,15 +125,38 @@ function dibujarGrafica() {
     const ink = col('--ink'), lineCol = col('--line'), muted = col('--muted'), accent = col('--c');
 
     const n = titulosActuales.length;
-    const notas = obtenerNotas();
-    const m = { l: 56, r: 30, t: 30, b: 170 };
+    const m = { l: 34, r: 22, t: 30, b: 40 };
+    const titulos = titulosActuales.map(t => recortar(t, 20));
+    let tam = 12;
+
+    // Márgenes según el texto real de los títulos (en diagonal, anclados a la derecha)
+    if (n > 0) {
+        for (let it = 0; it < 3; it++) {
+            const pw0 = W - m.l - m.r;
+            const paso0 = n > 1 ? pw0 / (n - 1) : pw0;
+            tam = Math.max(9, Math.min(13, paso0 * 0.7));
+            ctx.font = `700 ${tam}px 'Nunito', sans-serif`;
+
+            let deficit = 0;
+            titulos.forEach((t, i) => {
+                const x = n === 1 ? m.l + pw0 / 2 : m.l + pw0 * i / (n - 1);
+                const w = ctx.measureText(t).width;
+                deficit = Math.max(deficit, w * Math.SQRT1_2 + tam * 0.4 - x);
+            });
+            if (deficit > 0) m.l = Math.min(W * 0.35, m.l + deficit);
+        }
+        ctx.font = `700 ${tam}px 'Nunito', sans-serif`;
+        const maxW = Math.max(...titulos.map(t => ctx.measureText(t).width));
+        m.b = Math.min(H * 0.55, maxW * Math.SQRT1_2 + tam * 0.8 + 24);
+    }
+
     const pw = W - m.l - m.r;
     const ph = H - m.t - m.b;
     const xAt = i => n === 1 ? m.l + pw / 2 : m.l + pw * i / (n - 1);
     const yAt = v => m.t + ph * (1 - v / 10);
 
     // Rejilla horizontal y eje Y (0 a 10)
-    ctx.font = "600 15px 'Oswald', sans-serif";
+    ctx.font = "600 12px 'Oswald', sans-serif";
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
     for (let v = 0; v <= 10; v++) {
@@ -102,7 +168,7 @@ function dibujarGrafica() {
         ctx.lineTo(W - m.r, y);
         ctx.stroke();
         ctx.fillStyle = muted;
-        ctx.fillText(String(v), m.l - 12, y);
+        ctx.fillText(String(v), m.l - 8, y);
     }
 
     // Eje vertical
@@ -115,84 +181,81 @@ function dibujarGrafica() {
 
     if (n === 0) return;
 
-    // Eje X: nombres de canción en diagonal
-    const paso = n > 1 ? pw / (n - 1) : pw;
-    const tam = Math.max(9, Math.min(15, paso * 0.7));
+    // Eje X: marcas y nombres de canción en diagonal
     ctx.font = `700 ${tam}px 'Nunito', sans-serif`;
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
-    titulosActuales.forEach((titulo, i) => {
+    titulos.forEach((titulo, i) => {
         const x = xAt(i);
-        // marca de tracción
         ctx.strokeStyle = ink;
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(x, m.t + ph);
-        ctx.lineTo(x, m.t + ph + 6);
+        ctx.lineTo(x, m.t + ph + 5);
         ctx.stroke();
 
         ctx.save();
-        ctx.translate(x + 4, m.t + ph + 14);
+        ctx.translate(x + 3, m.t + ph + 12);
         ctx.rotate(-Math.PI / 4);
         ctx.fillStyle = notas[i] === null ? muted : ink;
-        ctx.fillText(recortar(titulo, 26), 0, 0);
+        ctx.fillText(titulo, 0, 0);
         ctx.restore();
     });
 
     // Puntos puntuados (se unen en orden, saltando los vacíos)
     const puntos = [];
     notas.forEach((v, i) => { if (v !== null) puntos.push({ x: xAt(i), y: yAt(v), v }); });
+    if (puntos.length === 0) return;
 
-    if (puntos.length > 0) {
-        // Líneas verticales de puntos: unen cada nota con el título de su canción
-        ctx.save();
-        ctx.strokeStyle = muted;
-        ctx.lineWidth = 2;
+    // Líneas verticales de puntos: unen cada nota con el título de su canción
+    ctx.save();
+    ctx.strokeStyle = muted;
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.setLineDash([0.1, 6]); // con extremo redondo, esto dibuja puntos
+    puntos.forEach(p => {
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y + 8);
+        ctx.lineTo(p.x, m.t + ph);
+        ctx.stroke();
+    });
+    ctx.restore();
+
+    // Línea continua
+    if (puntos.length > 1) {
+        ctx.strokeStyle = accent;
+        ctx.lineWidth = 3;
+        ctx.lineJoin = 'round';
         ctx.lineCap = 'round';
-        ctx.setLineDash([0.1, 7]); // con lineCap redondo, esto dibuja puntos
-        puntos.forEach(p => {
-            ctx.beginPath();
-            ctx.moveTo(p.x, p.y + 9);
-            ctx.lineTo(p.x, m.t + ph);
-            ctx.stroke();
-        });
-        ctx.restore();
-
-        // Línea continua
-        if (puntos.length > 1) {
-            ctx.strokeStyle = accent;
-            ctx.lineWidth = 4;
-            ctx.lineJoin = 'round';
-            ctx.lineCap = 'round';
-            ctx.beginPath();
-            puntos.forEach((p, k) => k === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
-            ctx.stroke();
-        }
-
-        // Puntos y valor sobre cada punto
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'bottom';
-        ctx.font = "600 16px 'Oswald', sans-serif";
-        puntos.forEach(p => {
-            ctx.fillStyle = accent;
-            ctx.strokeStyle = '#fff';
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, 7, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-
-            ctx.fillStyle = ink;
-            ctx.fillText(String(p.v), p.x, p.y - 12);
-        });
+        ctx.beginPath();
+        puntos.forEach((p, k) => k === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+        ctx.stroke();
     }
 
-    actualizarMedia(puntos.map(p => p.v));
+    // Puntos y valor sobre cada punto
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.font = "600 14px 'Oswald', sans-serif";
+    puntos.forEach(p => {
+        ctx.fillStyle = accent;
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 5.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = ink;
+        ctx.fillText(String(p.v), p.x, p.y - 10);
+    });
 }
 
-function actualizarMedia(valores) {
-    if (!notaMediaValor) return;
-    if (!valores || valores.length === 0) {
+// ======================================================
+// PREVIEW: media, progreso y estado de los botones
+// ======================================================
+function actualizarMedia() {
+    const valores = notasPuntuadas();
+    if (valores.length === 0) {
         notaMediaValor.textContent = '–';
         return;
     }
@@ -200,37 +263,158 @@ function actualizarMedia(valores) {
     notaMediaValor.textContent = media.toFixed(1);
 }
 
-function todasPuntuadas() {
-    const notas = obtenerNotas();
-    return notas.length > 0 && notas.length === titulosActuales.length &&
-           notas.every(v => v !== null);
+function actualizarProgreso() {
+    const total = titulosActuales.length;
+    const hechas = notasPuntuadas().length;
+
+    progresoFill.style.width = total ? `${(hechas / total) * 100}%` : '0%';
+    contador.textContent = total ? `${hechas}/${total}` : '';
+
+    if (total === 0) {
+        progresoTexto.textContent = 'Select an album to start rating.';
+    } else if (hechas < total) {
+        progresoTexto.textContent = `${hechas} of ${total} tracks rated. Rate all tracks to save.`;
+    } else {
+        progresoTexto.textContent = 'All tracks rated. Ready to save or share!';
+    }
 }
 
 function refrescarPreview() {
     dibujarGrafica();
-    // Si no hay canciones, dibujarGrafica sale antes de calcular la media
-    if (titulosActuales.length === 0) actualizarMedia([]);
-    // El botón solo se activa cuando están todas las canciones puntuadas
-    btnDescargar.disabled = !todasPuntuadas();
-}
+    actualizarMedia();
+    actualizarProgreso();
 
-// Cada vez que se cambia una nota, se redibuja la gráfica
-listaCanciones.addEventListener('change', (e) => {
-    if (e.target.classList.contains('nota-select')) refrescarPreview();
-});
+    const lista = todasPuntuadas();
+    btnDescargar.disabled = !lista;
+    btnCompartir.disabled = !lista;
+    btnBorrar.disabled = notasPuntuadas().length === 0;
+
+    invalidarImagen();
+}
 
 // Redibujar cuando las fuentes de Google estén cargadas
 if (document.fonts && document.fonts.ready) {
-    document.fonts.ready.then(refrescarPreview);
-} else {
+    document.fonts.ready.then(() => { ajustarEscala(); refrescarPreview(); });
+}
+
+// ======================================================
+// BOTONES DE NOTA (0-10)
+// ======================================================
+function crearFilaCancion(titulo, index) {
+    const item = document.createElement('div');
+    item.className = 'cancion-item';
+
+    const nombre = document.createElement('span');
+    nombre.className = 'cancion-nombre';
+    nombre.textContent = `${index + 1}. ${titulo}`;
+
+    const fila = document.createElement('div');
+    fila.className = 'notas';
+    fila.setAttribute('role', 'group');
+    fila.setAttribute('aria-label', `Rating for ${titulo}`);
+
+    for (let v = 0; v <= 10; v++) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'nota-btn';
+        btn.dataset.i = index;
+        btn.dataset.v = v;
+        btn.textContent = v;
+        btn.setAttribute('aria-pressed', 'false');
+        btn.setAttribute('aria-label', `${v} for ${titulo}`);
+        fila.appendChild(btn);
+    }
+
+    item.appendChild(nombre);
+    item.appendChild(fila);
+    return item;
+}
+
+function pintarNotas() {
+    listaCanciones.querySelectorAll('.cancion-item').forEach((item, i) => {
+        item.querySelectorAll('.nota-btn').forEach(btn => {
+            const activo = notas[i] === Number(btn.dataset.v);
+            btn.classList.toggle('sel', activo);
+            btn.setAttribute('aria-pressed', String(activo));
+        });
+    });
+}
+
+// Un clic pone la nota; otro clic sobre la misma la quita
+listaCanciones.addEventListener('click', (e) => {
+    const btn = e.target.closest('.nota-btn');
+    if (!btn) return;
+
+    const i = Number(btn.dataset.i);
+    const v = Number(btn.dataset.v);
+    notas[i] = notas[i] === v ? null : v;
+
+    mostrarAviso('');
+    pintarNotas();
+    refrescarPreview();
+});
+
+// Borrar todas las notas
+btnBorrar.addEventListener('click', () => {
+    notas = notas.map(() => null);
+    mostrarAviso('');
+    pintarNotas();
+    refrescarPreview();
+});
+
+// ======================================================
+// COLOR DE ACENTO
+// ======================================================
+function aplicarColor(valor, swatchActivo) {
+    document.documentElement.style.setProperty('--c', valor);
+    document.querySelectorAll('.swatch').forEach(s => s.classList.toggle('sel', s === swatchActivo));
     refrescarPreview();
 }
+
+document.getElementById('swatches').addEventListener('click', (e) => {
+    const sw = e.target.closest('.swatch');
+    if (sw) aplicarColor(sw.dataset.color, sw);
+});
+
+document.getElementById('btn-sorpresa').addEventListener('click', () => {
+    const actual = getComputedStyle(document.documentElement).getPropertyValue('--c').trim();
+    const opciones = COLORES_SORPRESA.filter(c => c !== actual);
+    const elegido = opciones[Math.floor(Math.random() * opciones.length)];
+    const sw = Array.from(document.querySelectorAll('.swatch')).find(s => s.dataset.color === elegido);
+    aplicarColor(elegido, sw);
+});
+
+// ======================================================
+// FORMATO DE LA IMAGEN (1:1 o 9:16)
+// ======================================================
+document.getElementById('formatos').addEventListener('click', (e) => {
+    const btn = e.target.closest('.seg');
+    if (!btn) return;
+
+    document.querySelectorAll('.seg').forEach(s => s.classList.toggle('sel', s === btn));
+    card.classList.toggle('fmt-square', btn.dataset.fmt === 'square');
+    card.classList.toggle('fmt-story', btn.dataset.fmt === 'story');
+
+    ajustarEscala();
+    refrescarPreview();
+});
 
 // ======================================================
 // 1. AUTOCOMPLETADO DE ARTISTAS
 // ======================================================
+function mostrarMensajeDropdown(texto) {
+    dropdownArtistas.innerHTML = '';
+    const msg = document.createElement('div');
+    msg.textContent = texto;
+    msg.style.cssText =
+        "padding:12px 16px;font-size:16px;color:var(--muted);font-style:italic;font-family:'Nunito',sans-serif;";
+    dropdownArtistas.appendChild(msg);
+    dropdownArtistas.style.display = 'block';
+}
+
 inputArtista.addEventListener('input', () => {
     clearTimeout(timerBusqueda);
+    ++peticionArtista; // invalida cualquier respuesta anterior todavía en vuelo
 
     const busqueda = inputArtista.value.trim();
     if (busqueda.length < 2) {
@@ -238,8 +422,10 @@ inputArtista.addEventListener('input', () => {
         return;
     }
 
+    mostrarMensajeDropdown('Searching…');
+
     timerBusqueda = setTimeout(async () => {
-        const miPeticion = ++peticionArtista;
+        const miPeticion = peticionArtista;
         const url = `${MB_BASE}/artist?query=${encodeURIComponent(busqueda)}&limit=8&fmt=json`;
 
         try {
@@ -247,13 +433,13 @@ inputArtista.addEventListener('input', () => {
             if (miPeticion !== peticionArtista) return; // llegó una respuesta más nueva
 
             const artistas = data.artists || [];
-            dropdownArtistas.innerHTML = '';
 
             if (artistas.length === 0) {
-                dropdownArtistas.style.display = 'none';
+                mostrarMensajeDropdown('No artists found');
                 return;
             }
 
+            dropdownArtistas.innerHTML = '';
             artistas.forEach(art => {
                 const item = document.createElement('div');
                 item.textContent = art.disambiguation
@@ -279,7 +465,9 @@ inputArtista.addEventListener('input', () => {
             dropdownArtistas.style.display = 'block';
         } catch (err) {
             console.error("Error buscando artistas:", err);
-            dropdownArtistas.style.display = 'none';
+            if (miPeticion === peticionArtista) {
+                mostrarMensajeDropdown("Couldn't reach MusicBrainz. Try again in a moment.");
+            }
         }
     }, 400);
 });
@@ -294,11 +482,12 @@ async function buscarAlbumes(idArtista) {
     selectAlbumes.disabled = true;
     selectAlbumes.innerHTML = '<option value="">Loading albums...</option>';
     listaCanciones.innerHTML =
-        '<p style="text-align:center;color:var(--muted);font-size:16px;">Select an album to generate the tracklist.</p>';
+        '<p style="text-align:center;color:var(--muted);font-size:16px;margin:0;">Select an album to generate the tracklist.</p>';
     viewAlbum.textContent = "Your Album";
-    btnDescargar.disabled = true;
     titulosActuales = [];
+    notas = [];
     resetPortada();
+    mostrarAviso('');
     refrescarPreview();
 
     try {
@@ -341,7 +530,11 @@ async function buscarAlbumes(idArtista) {
 // ======================================================
 function resetPortada() {
     const coverArt = document.getElementById('cover-art');
-    if (coverArt) coverArt.src = PLACEHOLDER_COVER;
+    if (!coverArt) return;
+    coverArt.onerror = null;
+    coverArt.onload = null;
+    coverArt.classList.remove('visible'); // oculta la imagen hasta que haya álbum
+    coverArt.removeAttribute('src');
 }
 
 function cargarPortada(idReleaseGroup) {
@@ -349,6 +542,8 @@ function cargarPortada(idReleaseGroup) {
     if (!coverArt) return;
 
     coverArt.crossOrigin = "anonymous"; // necesario para que html2canvas pueda dibujarla
+    coverArt.classList.add('visible');
+    coverArt.onload = invalidarImagen;  // al cargar la portada, la imagen exportable cambia
     coverArt.onerror = () => {
         coverArt.onerror = null;
         coverArt.src = PLACEHOLDER_COVER;
@@ -365,11 +560,12 @@ selectAlbumes.addEventListener('change', async () => {
 
     const opcion = selectAlbumes.options[selectAlbumes.selectedIndex];
     viewAlbum.textContent = opcion.dataset.title || opcion.text;
-    btnDescargar.disabled = true;
     titulosActuales = [];
+    notas = [];
+    mostrarAviso('');
     refrescarPreview();
     listaCanciones.innerHTML =
-        '<p style="text-align:center;color:var(--muted);font-size:16px;">Loading tracks...</p>';
+        '<p style="text-align:center;color:var(--muted);font-size:16px;margin:0;">Loading tracks...</p>';
 
     cargarPortada(idGrupo);
 
@@ -395,63 +591,144 @@ selectAlbumes.addEventListener('change', async () => {
 
         if (tracks.length === 0) {
             listaCanciones.innerHTML =
-                '<p style="text-align:center;color:var(--muted)">No tracks found for this album.</p>';
+                '<p style="text-align:center;color:var(--muted);margin:0;">No tracks found for this album.</p>';
             return;
         }
 
+        titulosActuales = tracks.map(t => t.title);
+        notas = titulosActuales.map(() => null);
+
         tracks.forEach((track, index) => {
-            const item = document.createElement('div');
-            item.className = 'cancion-item';
-
-            const nombre = document.createElement('span');
-            nombre.className = 'cancion-nombre';
-            nombre.textContent = `${index + 1}. ${track.title}`;
-
-            const select = document.createElement('select');
-            select.className = 'nota-select';
-
-            const empty = document.createElement('option');
-            empty.value = "";
-            empty.textContent = "-";
-            select.appendChild(empty);
-
-            for (let i = 0; i <= 10; i++) {
-                const opt = document.createElement('option');
-                opt.value = i;
-                opt.textContent = i;
-                select.appendChild(opt);
-            }
-
-            item.appendChild(nombre);
-            item.appendChild(select);
-            listaCanciones.appendChild(item);
+            listaCanciones.appendChild(crearFilaCancion(track.title, index));
         });
 
-        titulosActuales = tracks.map(t => t.title);
-        refrescarPreview(); // el botón sigue desactivado hasta puntuar todo
+        refrescarPreview(); // los botones siguen desactivados hasta puntuar todo
     } catch (err) {
         console.error("Error cargando canciones:", err);
         listaCanciones.innerHTML =
-            '<p style="text-align:center;color:var(--muted)">Error loading tracks. Please try again.</p>';
+            '<p style="text-align:center;color:var(--muted);margin:0;">Error loading tracks. Please try again.</p>';
     }
 });
 
 // ======================================================
-// 5. GENERAR Y DESCARGAR IMAGEN (la preview)
+// 5. GENERAR IMAGEN (descargar / compartir)
 // ======================================================
-btnDescargar.addEventListener('click', () => {
-    if (!todasPuntuadas()) return;
-    const contenedor = document.getElementById('zona-captura');
+let imagenPromesa = null;   // imagen ya generada (o en proceso) para el estado actual
+let timerImagen;
 
-    html2canvas(contenedor, {
-        scale: 2,
+// Cada cambio invalida la imagen y, si todo está puntuado, la prepara en segundo plano.
+// Así "Share" puede abrirse al instante (algunos móviles exigen que se llame justo tras el toque).
+function invalidarImagen() {
+    imagenPromesa = null;
+    clearTimeout(timerImagen);
+    if (todasPuntuadas()) {
+        timerImagen = setTimeout(() => { obtenerImagen().catch(() => {}); }, 500);
+    }
+}
+
+function generarBlob() {
+    return html2canvas(card, {
+        scale: EXPORT_W / CARD_W,
         backgroundColor: '#ffffff',
         logging: false,
-        useCORS: true
-    }).then(canvas => {
-        const link = document.createElement('a');
-        link.download = `${viewAlbum.textContent.replace(/[^a-z0-9]/gi, '_')}_albumplot.png`;
-        link.href = canvas.toDataURL('image/png');
-        link.click();
-    }).catch(err => console.error("Error generando la imagen:", err));
+        useCORS: true,
+        windowWidth: 900,
+        onclone: (doc) => {
+            // En la copia que se renderiza: sin reducción, sin borde ni esquinas redondeadas
+            const c = doc.getElementById('zona-captura');
+            c.style.transform = 'none';
+            c.style.boxShadow = 'none';
+            c.style.borderRadius = '0';
+        }
+    }).then(canvas => new Promise((resolve, reject) => {
+        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('toBlob falló')), 'image/png');
+    }));
+}
+
+function obtenerImagen() {
+    if (!imagenPromesa) imagenPromesa = generarBlob();
+    return imagenPromesa;
+}
+
+function descargarBlob(blob) {
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.download = nombreArchivo();
+    link.href = url;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function conEstado(btn, texto, fn) {
+    const original = btn.textContent;
+    btn.textContent = texto;
+    btn.disabled = true;
+    try {
+        await fn();
+    } finally {
+        btn.textContent = original;
+        btn.disabled = !todasPuntuadas();
+    }
+}
+
+btnDescargar.addEventListener('click', () => {
+    if (!todasPuntuadas()) return;
+    mostrarAviso('');
+    conEstado(btnDescargar, 'Generating...', async () => {
+        try {
+            descargarBlob(await obtenerImagen());
+        } catch (err) {
+            console.error("Error generando la imagen:", err);
+            mostrarAviso("Couldn't generate the image. Please try again.");
+        }
+    });
 });
+
+// ---------- Compartir (Web Share API) ----------
+function puedeCompartirArchivos() {
+    try {
+        const prueba = new File([''], 'test.png', { type: 'image/png' });
+        return !!(navigator.share && navigator.canShare && navigator.canShare({ files: [prueba] }));
+    } catch {
+        return false;
+    }
+}
+
+if (puedeCompartirArchivos()) {
+    btnCompartir.hidden = false;
+}
+
+btnCompartir.addEventListener('click', () => {
+    if (!todasPuntuadas()) return;
+    mostrarAviso('');
+
+    conEstado(btnCompartir, 'Preparing...', async () => {
+        try {
+            const blob = await obtenerImagen();
+            const file = new File([blob], nombreArchivo(), { type: 'image/png' });
+
+            if (!navigator.canShare({ files: [file] })) {
+                descargarBlob(blob);
+                return;
+            }
+
+            await navigator.share({
+                files: [file],
+                title: `${viewAlbum.textContent} - ${viewArtista.textContent}`,
+                text: `My AlbumPlot for ${viewAlbum.textContent} by ${viewArtista.textContent}: ${notaMediaValor.textContent}/10 · ${SITE_URL}`
+            });
+        } catch (err) {
+            if (err.name === 'AbortError') return; // el usuario cerró el menú de compartir
+            console.error("Error al compartir:", err);
+            mostrarAviso("Couldn't open the share menu. Try \"Save Image\" instead.");
+        }
+    });
+});
+
+// ======================================================
+// ARRANQUE
+// ======================================================
+ajustarEscala();
+refrescarPreview();
