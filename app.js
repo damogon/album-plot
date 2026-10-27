@@ -22,14 +22,17 @@ if (document.getElementById('marca-agua')) {
 }
 
 // ======================================================
-// UTILITY: Remove accents/tildes
+// UTILITY: Normalize text (removes accents/tildes and converts to lowercase)
 // ======================================================
-function sinTildes(texto) {
-    return texto.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+function limpiarTexto(texto) {
+    return texto.normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "")
+                .toLowerCase()
+                .trim();
 }
 
 // ======================================================
-// 1. ARTIST AUTOCOMPLETE (Stable, ignores accents)
+// 1. ARTIST AUTOCOMPLETE (Handles casing, tildes, and filters empty artists)
 // ======================================================
 inputArtista.addEventListener('input', () => {
     clearTimeout(timerBusqueda);
@@ -37,11 +40,10 @@ inputArtista.addEventListener('input', () => {
     const busqueda = inputArtista.value.trim();
     if (busqueda.length < 2) return;
 
-    const normalizada = sinTildes(busqueda);
+    const textoUsuarioLimpio = limpiarTexto(busqueda);
 
     timerBusqueda = setTimeout(() => {
-        // FIXED: Removed the trailing slash before '?query=' to prevent 404 endpoint mapping errors
-        const url = `https://musicbrainz.org/ws/2/artist?query=${encodeURIComponent(normalizada)}&limit=25&fmt=json`;
+        const url = `https://musicbrainz.org{encodeURIComponent(textoUsuarioLimpio)}&limit=40&fmt=json`;
 
         fetch(url, { headers: { "User-Agent": USER_AGENT } })
             .then(res => res.json())
@@ -50,24 +52,49 @@ inputArtista.addEventListener('input', () => {
 
                 if (!data.artists || data.artists.length === 0) return;
 
+                // 1. Filter out duplicate artists by their unique MusicBrainz ID
                 const unicos = new Map();
                 data.artists.forEach(a => unicos.set(a.id, a));
 
-                [...unicos.values()]
-                    .slice(0, 8)
-                    .forEach(art => {
+                const listaPromesas = [...unicos.values()].map(art => {
+                    const nombreApiLimpio = limpiarTexto(art.name);
+                    
+                    // Cross-reference user input natively with API response text matching
+                    if (nombreApiLimpio.includes(textoUsuarioLimpio)) {
+                        
+                        // REQUIREMENT: Pre-fetch subquery to confirm artist has real studio "Albums" (LPs)
+                        return fetch(`https://musicbrainz.org{art.id}&inc=release-groups&limit=30&fmt=json`, {
+                            headers: { "User-Agent": USER_AGENT }
+                        })
+                        .then(res => res.json())
+                        .then(albumData => {
+                            const tieneLPs = albumData.releases?.some(rel => rel["release-group"]?.["primary-type"] === "Album");
+                            return tieneLPs ? art : null;
+                        })
+                        .catch(() => null);
+                    }
+                    return null;
+                });
+
+                // Resolve all async validation checks in background thread layout mapping
+                Promise.all(listaPromesas).then(resultados => {
+                    const artistasValidos = resultados.filter(a => a !== null);
+                    
+                    // Populate up to 8 accurate autocomplete options into selection drop down
+                    artistasValidos.slice(0, 8).forEach(art => {
                         const option = document.createElement('option');
-                        option.value = art.name;
+                        option.value = art.name; // Preserves proper format casing (e.g., ROSALÍA)
                         option.dataset.id = art.id;
                         datalistArtistas.appendChild(option);
                     });
+                });
             })
             .catch(err => {
                 console.error("Error fetching artist:", err);
                 datalistArtistas.innerHTML = '';
             });
 
-    }, 350);
+    }, 400); 
 });
 
 // ======================================================
@@ -88,8 +115,7 @@ inputArtista.addEventListener('change', () => {
 // 3. FETCH ALBUMS (LPs Only)
 // ======================================================
 function buscarAlbumes(idArtista) {
-    // FIXED: Removed the trailing slash before '?artist='
-    fetch(`https://musicbrainz.org/ws/2/release?artist=${idArtista}&inc=release-groups&limit=100&fmt=json`, {
+    fetch(`https://musicbrainz.org{idArtista}&inc=release-groups&limit=100&fmt=json`, {
         headers: { "User-Agent": USER_AGENT }
     })
     .then(res => res.json())
@@ -103,7 +129,7 @@ function buscarAlbumes(idArtista) {
         data.releases.forEach(rel => {
             const grupo = rel["release-group"];
 
-            // LPs only
+            // Restrict lists strictly to primary LP album releases
             if (grupo?.["primary-type"] !== "Album") return;
 
             if (!discosUnicos.has(rel.title)) {
@@ -123,10 +149,10 @@ function buscarAlbumes(idArtista) {
 }
 
 // ======================================================
-// 4. FETCH ALBUM ART COVER
+// 4. FETCH ALBUM COVER ART
 // ======================================================
 function cargarPortada(idReleaseGroup) {
-    const url = `https://coverartarchive.org/release-group/${idReleaseGroup}/front`;
+    const url = `https://coverartarchive.org{idReleaseGroup}/front`;
 
     fetch(url)
         .then(res => {
@@ -135,13 +161,14 @@ function cargarPortada(idReleaseGroup) {
         })
         .catch(() => {
             if (coverArt) {
-                coverArt.src = "https://upload.wikimedia.org/wikipedia/commons/thumb/6/65/No-Image-Placeholder.svg/600px-No-Image-Placeholder.svg.png";
+                // Fallback placeholder image asset if no official front artwork exists
+                coverArt.src = "https://wikimedia.org";
             }
         });
 }
 
 // ======================================================
-// 5. FETCH TRACKLIST FROM ALBUM
+// 5. FETCH TRACKLIST FROM ALBUM SELECTION
 // ======================================================
 selectAlbumes.addEventListener('change', () => {
     const idAlbum = selectAlbumes.value;
@@ -153,7 +180,7 @@ selectAlbumes.addEventListener('change', () => {
 
     cargarPortada(idGrupo);
 
-    fetch(`https://musicbrainz.org/ws/2/release/${idAlbum}?inc=recordings&fmt=json`, {
+    fetch(`https://musicbrainz.org{idAlbum}?inc=recordings&fmt=json`, {
         headers: { "User-Agent": USER_AGENT }
     })
     .then(res => res.json())
@@ -201,12 +228,12 @@ selectAlbumes.addEventListener('change', () => {
 });
 
 // ======================================================
-// 6. RENDER AND DOWNLOAD IMAGE
+// 6. RENDER AND DOWNLOAD CARD IMAGE
 // ======================================================
 btnDescargar.addEventListener('click', () => {
     const contenedor = document.getElementById('zona-captura');
 
-    // FIXED: Explicitly sync selected option states into HTML properties so html2canvas renders scores
+    // Force exact select values to synchronize directly into DOM node elements for html2canvas
     const selects = contenedor.querySelectorAll('.nota-select');
     selects.forEach(sel => {
         const opciones = sel.querySelectorAll('option');
