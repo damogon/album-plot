@@ -1,5 +1,5 @@
 // ===============================
-// RateThisAlbum - Main Script
+// AlbumPlot - Main Script
 // ===============================
 
 const MB_BASE = "https://musicbrainz.org/ws/2";
@@ -32,10 +32,10 @@ const btnDescargar = document.getElementById('btn-descargar');
 const canvasGrafica = document.getElementById('grafica');
 const notaMediaValor = document.getElementById('nota-media-valor');
 
-// Dynamic Watermark setup
+// Marca de agua con el enlace completo
 if (document.getElementById('marca-agua')) {
     document.getElementById('marca-agua').textContent =
-        `MADE AT: ${window.location.host.toUpperCase()}`;
+        'MADE AT: damogon.github.io/rate-this-album/';
 }
 
 // Cerrar el desplegable al hacer clic fuera
@@ -144,6 +144,20 @@ function dibujarGrafica() {
     notas.forEach((v, i) => { if (v !== null) puntos.push({ x: xAt(i), y: yAt(v), v }); });
 
     if (puntos.length > 0) {
+        // Líneas verticales de puntos: unen cada nota con el título de su canción
+        ctx.save();
+        ctx.strokeStyle = muted;
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        ctx.setLineDash([0.1, 7]); // con lineCap redondo, esto dibuja puntos
+        puntos.forEach(p => {
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y + 9);
+            ctx.lineTo(p.x, m.t + ph);
+            ctx.stroke();
+        });
+        ctx.restore();
+
         // Línea continua
         if (puntos.length > 1) {
             ctx.strokeStyle = accent;
@@ -186,10 +200,18 @@ function actualizarMedia(valores) {
     notaMediaValor.textContent = media.toFixed(1);
 }
 
+function todasPuntuadas() {
+    const notas = obtenerNotas();
+    return notas.length > 0 && notas.length === titulosActuales.length &&
+           notas.every(v => v !== null);
+}
+
 function refrescarPreview() {
     dibujarGrafica();
     // Si no hay canciones, dibujarGrafica sale antes de calcular la media
     if (titulosActuales.length === 0) actualizarMedia([]);
+    // El botón solo se activa cuando están todas las canciones puntuadas
+    btnDescargar.disabled = !todasPuntuadas();
 }
 
 // Cada vez que se cambia una nota, se redibuja la gráfica
@@ -406,8 +428,7 @@ selectAlbumes.addEventListener('change', async () => {
         });
 
         titulosActuales = tracks.map(t => t.title);
-        refrescarPreview();
-        btnDescargar.disabled = false;
+        refrescarPreview(); // el botón sigue desactivado hasta puntuar todo
     } catch (err) {
         console.error("Error cargando canciones:", err);
         listaCanciones.innerHTML =
@@ -419,6 +440,7 @@ selectAlbumes.addEventListener('change', async () => {
 // 5. GENERAR Y DESCARGAR IMAGEN (la preview)
 // ======================================================
 btnDescargar.addEventListener('click', () => {
+    if (!todasPuntuadas()) return;
     const contenedor = document.getElementById('zona-captura');
 
     html2canvas(contenedor, {
@@ -428,7 +450,7 @@ btnDescargar.addEventListener('click', () => {
         useCORS: true
     }).then(canvas => {
         const link = document.createElement('a');
-        link.download = `${viewAlbum.textContent.replace(/[^a-z0-9]/gi, '_')}_rate.png`;
+        link.download = `${viewAlbum.textContent.replace(/[^a-z0-9]/gi, '_')}_albumplot.png`;
         link.href = canvas.toDataURL('image/png');
         link.click();
     }).catch(err => console.error("Error generando la imagen:", err));
