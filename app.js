@@ -37,41 +37,41 @@ inputArtista.addEventListener('input', () => {
     const busqueda = inputArtista.value.trim();
     if (busqueda.length < 2) return;
 
-    const busquedaNormalizada = sinTildes(busqueda);
+    // Normalizamos para ignorar tildes
+    const normalizada = sinTildes(busqueda);
 
     timerBusqueda = setTimeout(() => {
-        const urls = [
-            `https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(busqueda)}&fmt=json`,
-            `https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(busquedaNormalizada)}&fmt=json`
-        ];
 
-        Promise.all(
-            urls.map(url =>
-                fetch(url, { headers: { "User-Agent": USER_AGENT } }).then(r => r.json())
-            )
-        ).then(results => {
-            datalistArtistas.innerHTML = '';
+        // MusicBrainz permite buscar sin tildes directamente
+        const url = `https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(normalizada)}&fmt=json`;
 
-            const artistas = [];
+        fetch(url, { headers: { "User-Agent": USER_AGENT } })
+            .then(res => res.json())
+            .then(data => {
+                datalistArtistas.innerHTML = '';
 
-            results.forEach(r => {
-                if (r.artists) artistas.push(...r.artists);
+                if (!data.artists || data.artists.length === 0) return;
+
+                // Filtrar duplicados por ID
+                const unicos = new Map();
+                data.artists.forEach(a => unicos.set(a.id, a));
+
+                [...unicos.values()]
+                    .slice(0, 8) // más resultados, pero sin romper nada
+                    .forEach(art => {
+                        const option = document.createElement('option');
+                        option.value = art.name;
+                        option.dataset.id = art.id;
+                        datalistArtistas.appendChild(option);
+                    });
+            })
+            .catch(err => {
+                console.error("Error fetching artist:", err);
+                datalistArtistas.innerHTML = '';
             });
 
-            const unicos = new Map();
-            artistas.forEach(a => unicos.set(a.id, a));
-
-            [...unicos.values()].slice(0, 5).forEach(art => {
-                const option = document.createElement('option');
-                option.value = art.name;
-                option.dataset.id = art.id;
-                datalistArtistas.appendChild(option);
-            });
-        })
-        .catch(err => console.error("Error fetching artist:", err));
-    }, 400);
+    }, 350);
 });
-
 
 // ======================================================
 // 2. DETECTAR SELECCIÓN DE ARTISTA
