@@ -53,8 +53,7 @@ inputArtista.addEventListener('input', () => {
 
     timerBusqueda = setTimeout(() => {
         // FIXED: Rebuilt absolute endpoint strings with appropriate search paths
-        const url = `https://musicbrainz.org{encodeURIComponent(textoUsuarioLimpio)}&limit=40&fmt=json`;
-
+        const url = `https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(textoUsuarioLimpio)}&limit=40&fmt=json`;
         fetch(url, { headers: { "User-Agent": USER_AGENT } })
             .then(res => res.json())
             .then(async data => {
@@ -144,7 +143,7 @@ inputArtista.addEventListener('input', () => {
 // ======================================================
 function buscarAlbumes(idArtista) {
     // FIXED: Corrected path parameter concatenation
-    fetch(`https://musicbrainz.org{idArtista}&inc=release-groups&limit=100&fmt=json`, {
+    fetch(`https://musicbrainz.org/ws/2/release/?artist=${idArtista}&inc=release-groups&limit=100&fmt=json`, {
         headers: { "User-Agent": USER_AGENT }
     })
     .then(res => res.json())
@@ -186,9 +185,9 @@ selectAlbumes.addEventListener('change', () => {
     viewAlbum.textContent = selectAlbumes.options[selectAlbumes.selectedIndex].text;
 
     // FIXED: Patched path literal string handling
-    fetch(`https://musicbrainz.org{idAlbum}?inc=recordings&fmt=json`, {
-        headers: { "User-Agent": USER_AGENT }
-    })
+    fetch(`https://musicbrainz.org/ws/2/release/${idAlbum}?inc=recordings&fmt=json`, {
+            headers: { "User-Agent": USER_AGENT }
+        })
     .then(res => res.json())
     .then(data => {
         listaCanciones.innerHTML = '';
