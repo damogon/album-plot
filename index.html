@@ -4,13 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>RateThisAlbum - Universal Music Rating Tool</title>
-  
-  <!-- Correct Google Fonts -->
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
-  
-  <!-- Correct html2canvas library -->
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
   <style>
@@ -36,7 +34,7 @@
     }
 
     .wrap { max-width: 650px; margin: 0 auto; }
-    
+
     header { margin-bottom: 24px; text-align: center; }
     header h1 {
       font-family: 'Oswald', sans-serif;
@@ -46,12 +44,7 @@
       line-height: 1.1;
       text-transform: uppercase;
     }
-
-    /* Color ONLY for "This" */
-    header h1 .highlight {
-      color: var(--c);
-    }
-
+    header h1 .highlight { color: var(--c); }
     header p { margin: 8px 0 0; color: var(--muted); font-size: 16px; }
 
     .panel {
@@ -92,32 +85,10 @@
     }
     input[type=text]:focus, select:focus { border-color: var(--ink); outline: none; }
 
-    #zona-captura {
-      background: var(--card);
-      border: 2px solid var(--line);
-      border-radius: 22px;
-      padding: 30px;
-      margin-top: 24px;
-      position: relative;
-    }
-
-    .header-poster {
-      text-align: center;
-      margin-bottom: 24px;
-      border-bottom: 2px dashed var(--line);
-      padding-bottom: 16px;
-    }
-    .header-poster h3 {
-      font-family: 'Oswald', sans-serif;
-      font-size: 28px;
-      margin: 0;
-      text-transform: uppercase;
-    }
-    .header-poster p { margin: 4px 0 0; color: var(--muted); font-weight: 700; }
-
+    /* ---------- Tracklist (input) ---------- */
     .cancion-item {
       display: grid;
-      grid-template-columns: 1fr 70px;
+      grid-template-columns: 1fr 80px;
       gap: 14px;
       align-items: center;
       padding: 12px 0;
@@ -125,23 +96,87 @@
     }
     .cancion-item:first-of-type { border-top: 0; }
     .cancion-nombre { font-size: 17px; font-weight: 700; color: var(--ink); }
-    
+
     .nota-select {
       font-family: 'Oswald', sans-serif;
       font-size: 20px;
       font-weight: 600;
       height: 44px;
+      padding: 0 8px;
       text-align: center;
+      text-align-last: center;
       border: 2px solid var(--ink);
       border-radius: 10px;
       background: #fff;
     }
 
+    /* ---------- Preview (lo que se descarga) ---------- */
+    #zona-captura {
+      background: var(--card);
+      border: 2px solid var(--line);
+      border-radius: 22px;
+      padding: 30px 24px 22px;
+      margin-top: 8px;
+      position: relative;
+    }
+
+    .header-poster {
+      text-align: center;
+      margin-bottom: 18px;
+      border-bottom: 2px dashed var(--line);
+      padding: 0 90px 16px; /* hueco a los lados para la nota media */
+    }
+    .header-poster img {
+      width: 130px;
+      height: 130px;
+      object-fit: cover;
+      border-radius: 12px;
+      border: 2px solid var(--line);
+      margin-bottom: 12px;
+    }
+    .header-poster h3 {
+      font-family: 'Oswald', sans-serif;
+      font-size: 28px;
+      margin: 0;
+      line-height: 1.15;
+      text-transform: uppercase;
+    }
+    .header-poster p { margin: 4px 0 0; color: var(--muted); font-weight: 700; }
+
+    /* Nota media en la esquina */
+    .nota-media {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      width: 84px;
+      height: 84px;
+      border-radius: 50%;
+      background: var(--c);
+      color: var(--on-c);
+      border: 3px solid var(--ink);
+      box-shadow: 0 4px 0 var(--ink);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Oswald', sans-serif;
+      line-height: 1;
+    }
+    .nota-media .valor { font-size: 32px; font-weight: 700; }
+    .nota-media .etiqueta {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .12em;
+      margin-top: 3px;
+    }
+
+    #grafica { display: block; width: 100%; height: auto; }
+
     .watermark {
       text-align: center;
       font-size: 12px;
       color: var(--muted);
-      margin-top: 24px;
+      margin-top: 12px;
       font-weight: 700;
       letter-spacing: 0.05em;
     }
@@ -166,6 +201,13 @@
     }
     .big-button:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 2px 0 var(--ink); }
     .big-button:disabled { background: #ccc; box-shadow: none; border-color: #aaa; cursor: not-allowed; }
+
+    @media (max-width: 480px) {
+      .header-poster { padding: 0 0 16px; }
+      .nota-media { width: 64px; height: 64px; top: 12px; right: 12px; }
+      .nota-media .valor { font-size: 24px; }
+      .nota-media .etiqueta { font-size: 9px; }
+    }
   </style>
 </head>
 <body>
@@ -173,54 +215,71 @@
 <div class="wrap">
   <header>
     <h1>Rate<span class="highlight">This</span>Album</h1>
-    <p>Search for an artist, pick an album, rate each track from 1 to 10, and download your custom card to share on social media.</p>
+    <p>Search for an artist, pick an album, rate each track from 0 to 10, and download your custom card to share on social media.</p>
   </header>
 
-<main>
-  <!-- Configuration & Search -->
-  <section class="panel">
-    <div class="step">Setup</div>
-    <h2>Find Your Album</h2>
-    <div class="buscador-group" style="position: relative;">
-      <!-- Removed native list attribute to handle a clean custom dropdown interface instead -->
-      <input type="text" id="artista" placeholder="Type an artist (e.g., Rosalía, Daft Punk...)" autocomplete="off">
-      
-      <!-- Custom overlay list element for artists (mimics a native select dropdown menu) -->
-      <div id="dropdown-artistas" style="
-        position: absolute;
-        z-index: 10;
-        background: #fff;
-        border: 2px solid var(--line);
-        border-radius: 12px;
-        margin-top: 4px;
-        width: 100%;
-        max-height: 260px;
-        overflow-y: auto;
-        display: none;
-      "></div>
-      <select id="albumes" disabled style="margin-top: 12px;">
-        <option value="">-- Choose an artist first --</option>
-      </select>
-    </div>
-  </section>
+  <main>
+    <!-- Paso 1: buscar -->
+    <section class="panel">
+      <div class="step">Step 1</div>
+      <h2>Find Your Album</h2>
+      <div class="buscador-group" style="position: relative;">
+        <input type="text" id="artista" placeholder="Type an artist (e.g., Rosalía, Daft Punk...)" autocomplete="off">
 
-  <!-- Capture Zone -->
-  <div id="zona-captura">
-    <div class="header-poster">
-      <img id="cover-art" alt="Portada" style="width:160px;height:160px;object-fit:cover;border-radius:12px;margin-bottom:12px;">
-      <h3 id="view-album">Your Album</h3>
-      <p id="view-artista">Artist</p>
-    </div>
-    
-    <div id="lista-canciones">
-      <p style="text-align:center; color:var(--muted); font-size:16px;">Select an album to generate the tracklist.</p>
-    </div>
+        <div id="dropdown-artistas" style="
+          position: absolute;
+          z-index: 10;
+          top: 100%;
+          background: #fff;
+          border: 2px solid var(--line);
+          border-radius: 12px;
+          margin-top: -8px;
+          width: 100%;
+          max-height: 260px;
+          overflow-y: auto;
+          display: none;
+        "></div>
 
-    <div class="watermark" id="marca-agua">RATETHISALBUM</div>
-  </div>
+        <select id="albumes" disabled>
+          <option value="">-- Choose an artist first --</option>
+        </select>
+      </div>
+    </section>
 
-  <button class="big-button" id="btn-descargar" disabled>Save Image</button>
-</main>
+    <!-- Paso 2: puntuar -->
+    <section class="panel">
+      <div class="step">Step 2</div>
+      <h2>Rate Each Track</h2>
+      <div id="lista-canciones">
+        <p style="text-align:center; color:var(--muted); font-size:16px; margin:0;">Select an album to generate the tracklist.</p>
+      </div>
+    </section>
+
+    <!-- Paso 3: preview (esto es lo que se descarga) -->
+    <section class="panel">
+      <div class="step">Step 3</div>
+      <h2>Your Rating</h2>
+
+      <div id="zona-captura">
+        <div class="nota-media" title="Average rating">
+          <span class="valor" id="nota-media-valor">–</span>
+          <span class="etiqueta">AVG</span>
+        </div>
+
+        <div class="header-poster">
+          <img id="cover-art" alt="Album cover">
+          <h3 id="view-album">Your Album</h3>
+          <p id="view-artista">Artist</p>
+        </div>
+
+        <canvas id="grafica" width="2000" height="1200"></canvas>
+
+        <div class="watermark" id="marca-agua">RATETHISALBUM</div>
+      </div>
+
+      <button class="big-button" id="btn-descargar" disabled>Save Image</button>
+    </section>
+  </main>
 </div>
 
 <script src="app.js"></script>
