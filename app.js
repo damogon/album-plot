@@ -2,12 +2,27 @@
 // RateThisAlbum - Main Script
 // ===============================
 
-const USER_AGENT = "RateThisAlbumApp/1.0.0 (info@ratethisalbum.com)";
+const MB_BASE = "https://musicbrainz.org/ws/2";
+const CAA_BASE = "https://coverartarchive.org";
+
+// Placeholder embebido (SVG en data URI) para portadas que no existen
+const PLACEHOLDER_COVER =
+  "data:image/svg+xml;utf8," +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300">
+       <rect width="100%" height="100%" fill="#e9e0d5"/>
+       <text x="50%" y="50%" font-family="sans-serif" font-size="24" fill="#6b625a"
+             text-anchor="middle" dominant-baseline="middle">Sin portada</text>
+     </svg>`
+  );
+
 let timerBusqueda;
+let peticionArtista = 0; // para descartar respuestas antiguas
+let peticionAlbum = 0;
 
 // DOM Elements
 const inputArtista = document.getElementById('artista');
-const dropdownArtistas = document.getElementById('dropdown-artistas'); 
+const dropdownArtistas = document.getElementById('dropdown-artistas');
 const selectAlbumes = document.getElementById('albumes');
 const listaCanciones = document.getElementById('lista-canciones');
 const viewArtista = document.getElementById('view-artista');
@@ -17,28 +32,27 @@ const btnDescargar = document.getElementById('btn-descargar');
 // Dynamic Watermark setup
 if (document.getElementById('marca-agua')) {
     document.getElementById('marca-agua').textContent =
-      `MADE AT: ${window.location.host.toUpperCase()}`;
+        `MADE AT: ${window.location.host.toUpperCase()}`;
 }
 
-// Close custom dropdown when clicking anywhere else on the screen
+// Cerrar el desplegable al hacer clic fuera
 document.addEventListener('click', (e) => {
-    if (e.target !== inputArtista && e.target !== dropdownArtistas) {
+    if (!inputArtista.contains(e.target) && !dropdownArtistas.contains(e.target)) {
         dropdownArtistas.style.display = 'none';
     }
 });
 
 // ======================================================
-// UTILITY: Normalize strings (removes accents/tildes and lowercases)
+// UTILIDAD: fetch JSON con comprobación de errores
 // ======================================================
-function limpiarTexto(texto) {
-    return texto.normalize("NFD")
-                .replace(/[\u0300-\u036f]/g, "")
-                .toLowerCase()
-                .trim();
+async function fetchJSON(url) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status} en ${url}`);
+    return res.json();
 }
 
 // ======================================================
-// 1. ARTIST AUTOCOMPLETE DROPDOWN (Strict validation)
+// 1. AUTOCOMPLETADO DE ARTISTAS
 // ======================================================
 inputArtista.addEventListener('input', () => {
     clearTimeout(timerBusqueda);
@@ -49,179 +63,160 @@ inputArtista.addEventListener('input', () => {
         return;
     }
 
-    const textoUsuarioLimpio = limpiarTexto(busqueda);
+    timerBusqueda = setTimeout(async () => {
+        const miPeticion = ++peticionArtista;
+        const url = `${MB_BASE}/artist?query=${encodeURIComponent(busqueda)}&limit=8&fmt=json`;
 
-    timerBusqueda = setTimeout(() => {
-        // CORREGIDO: Eliminada la barra '/' antes de '?query='
-        const url = `https://musicbrainz.org/ws/2/artist?query=${encodeURIComponent(textoUsuarioLimpio)}&limit=40&fmt=json`;
-        
-        fetch(url, { headers: { "User-Agent": USER_AGENT } })
-            .then(res => res.json())
-            .then(async data => {
-                dropdownArtistas.innerHTML = '';
+        try {
+            const data = await fetchJSON(url);
+            if (miPeticion !== peticionArtista) return; // llegó una respuesta más nueva
 
-                if (!data.artists || data.artists.length === 0) {
+            const artistas = data.artists || [];
+            dropdownArtistas.innerHTML = '';
+
+            if (artistas.length === 0) {
+                dropdownArtistas.style.display = 'none';
+                return;
+            }
+
+            artistas.forEach(art => {
+                const item = document.createElement('div');
+                item.textContent = art.disambiguation
+                    ? `${art.name} (${art.disambiguation})`
+                    : art.name;
+                item.style.cssText =
+                    "padding:12px 16px;cursor:pointer;border-bottom:1px solid var(--line);" +
+                    "font-size:16px;color:var(--ink);font-family:'Nunito',sans-serif;";
+
+                item.addEventListener('mouseover', () => item.style.background = 'var(--bg)');
+                item.addEventListener('mouseout', () => item.style.background = 'transparent');
+
+                item.addEventListener('click', () => {
+                    inputArtista.value = art.name;
+                    viewArtista.textContent = art.name;
                     dropdownArtistas.style.display = 'none';
-                    return;
-                }
-
-                // Remove duplicate IDs from the response
-                const unicos = new Map();
-                data.artists.forEach(a => unicos.set(a.id, a));
-
-                const artistasParaVerificar = [...unicos.values()];
-                const artistasValidados = [];
-
-                // Sequential scanning logic to prevent race conditions and filter empty artists
-                for (const art of artistasParaVerificar) {
-                    const nombreApiLimpio = limpiarTexto(art.name);
-
-                    if (nombreApiLimpio.includes(textoUsuarioLimpio)) {
-                        try {
-                            // CORREGIDO: Reconstruido el endpoint completo con /ws/2/release?artist= e interpolación ${}
-                            const subQueryUrl = `https://musicbrainz.org/ws/2/release?artist=${art.id}&inc=release-groups&limit=30&fmt=json`;
-                            const response = await fetch(subQueryUrl, { headers: { "User-Agent": USER_AGENT } });
-                            const albumData = await response.json();
-
-                            // Validate that at least 1 record maps explicitly as a primary LP "Album"
-                            const tieneLPs = albumData.releases?.some(rel => rel["release-group"]?.["primary-type"] === "Album");
-                            
-                            if (tieneLPs) {
-                                artistasValidados.push(art);
-                            }
-                        } catch (err) {
-                            console.error("Subquery validation dropped for artist ID:", art.id, err);
-                        }
-                    }
-
-                    // Cut evaluation early once we collect enough clean results
-                    if (artistasValidados.length >= 6) break;
-                }
-
-                if (artistasValidos.length === 0) {
-                    dropdownArtistas.style.display = 'none';
-                    return;
-                }
-
-                // Render custom dropdown items
-                artistasValidos.forEach(art => {
-                    const item = document.createElement('div');
-                    item.textContent = art.name;
-                    item.style.padding = '12px 16px';
-                    item.style.cursor = 'pointer';
-                    item.style.borderBottom = '1px solid var(--line)';
-                    item.style.fontSize = '16px';
-                    item.style.color = 'var(--ink)';
-                    item.style.fontFamily = "'Nunito', sans-serif";
-
-                    // Hover effects
-                    item.addEventListener('mouseover', () => item.style.background = 'var(--bg)');
-                    item.addEventListener('mouseout', () => item.style.background = 'transparent');
-
-                    // Selection logic triggers album queries smoothly
-                    item.addEventListener('click', () => {
-                        inputArtista.value = art.name; 
-                        viewArtista.textContent = art.name;
-                        dropdownArtistas.style.display = 'none';
-                        buscarAlbumes(art.id);
-                    });
-
-                    dropdownArtistas.appendChild(item);
+                    buscarAlbumes(art.id);
                 });
 
-                dropdownArtistas.style.display = 'block';
-            })
-            .catch(err => {
-                console.error("Error fetching artist autocomplete list:", err);
-                dropdownArtistas.style.display = 'none';
+                dropdownArtistas.appendChild(item);
             });
 
-    }, 400); 
+            dropdownArtistas.style.display = 'block';
+        } catch (err) {
+            console.error("Error buscando artistas:", err);
+            dropdownArtistas.style.display = 'none';
+        }
+    }, 400);
 });
 
 // ======================================================
-// 2. FETCH ALBUMS (LPs Only)
+// 2. ÁLBUMES DEL ARTISTA (solo álbumes de estudio)
 // ======================================================
-function buscarAlbumes(idArtista) {
-    // CORREGIDO: Eliminada la barra '/' antes de '?artist='
-    fetch(`https://musicbrainz.org/ws/2/release?artist=${idArtista}&inc=release-groups&limit=100&fmt=json`, {
-        headers: { "User-Agent": USER_AGENT }
-    })
-    .then(res => res.json())
-    .then(data => {
+async function buscarAlbumes(idArtista) {
+    const miPeticion = ++peticionAlbum;
+
+    // Reset de la interfaz
+    selectAlbumes.disabled = true;
+    selectAlbumes.innerHTML = '<option value="">Cargando álbumes...</option>';
+    listaCanciones.innerHTML =
+        '<p style="text-align:center;color:var(--muted);font-size:16px;">Select an album to generate the tracklist.</p>';
+    viewAlbum.textContent = "Your Album";
+    btnDescargar.disabled = true;
+    resetPortada();
+
+    try {
+        const url = `${MB_BASE}/release-group?artist=${idArtista}&type=album&limit=100&fmt=json`;
+        const data = await fetchJSON(url);
+        if (miPeticion !== peticionAlbum) return;
+
+        // Solo álbumes "puros": sin tipos secundarios (live, compilation, etc.)
+        const grupos = (data["release-groups"] || [])
+            .filter(g => g["primary-type"] === "Album" &&
+                         (!g["secondary-types"] || g["secondary-types"].length === 0))
+            .sort((a, b) => (a["first-release-date"] || "9999")
+                .localeCompare(b["first-release-date"] || "9999"));
+
         selectAlbumes.innerHTML = '<option value="">-- Select an Album --</option>';
 
-        if (!data.releases) return;
+        if (grupos.length === 0) {
+            selectAlbumes.innerHTML = '<option value="">No se encontraron álbumes</option>';
+            return;
+        }
 
-        const discosUnicos = new Set();
-
-        data.releases.forEach(rel => {
-            const grupo = rel["release-group"];
-
-            if (grupo?.["primary-type"] !== "Album") return;
-
-            if (!discosUnicos.has(rel.title)) {
-                discosUnicos.add(rel.title);
-
-                const option = document.createElement('option');
-                option.value = rel.id;
-                option.textContent = rel.title;
-                option.dataset.group = grupo.id;
-                selectAlbumes.appendChild(option);
-            }
+        grupos.forEach(g => {
+            const year = (g["first-release-date"] || "").slice(0, 4);
+            const option = document.createElement('option');
+            option.value = g.id;               // ID del release-group
+            option.dataset.title = g.title;
+            option.textContent = year ? `${g.title} (${year})` : g.title;
+            selectAlbumes.appendChild(option);
         });
 
         selectAlbumes.disabled = false;
-    })
-    .catch(err => console.error("Error fetching albums:", err));
+    } catch (err) {
+        console.error("Error cargando álbumes:", err);
+        selectAlbumes.innerHTML = '<option value="">Error al cargar (reintenta)</option>';
+    }
 }
 
 // ======================================================
-// 3. FETCH ALBUM COVER ART
+// 3. PORTADA
 // ======================================================
+function resetPortada() {
+    const coverArt = document.getElementById('cover-art');
+    if (coverArt) coverArt.src = PLACEHOLDER_COVER;
+}
+
 function cargarPortada(idReleaseGroup) {
     const coverArt = document.getElementById('cover-art');
     if (!coverArt) return;
 
-    const url = `https://coverartarchive.org{idReleaseGroup}/front`;
-
-    fetch(url)
-        .then(res => {
-            if (!res.ok) throw new Error("No cover available");
-            coverArt.src = url;
-        })
-        .catch(() => {
-            // Imagen de marcador de posición si el disco no tiene portada en la API
-            coverArt.src = "https://wikimedia.org";
-        });
+    coverArt.crossOrigin = "anonymous"; // necesario para que html2canvas pueda dibujarla
+    coverArt.onerror = () => {
+        coverArt.onerror = null;
+        coverArt.src = PLACEHOLDER_COVER;
+    };
+    coverArt.src = `${CAA_BASE}/release-group/${idReleaseGroup}/front-500`;
 }
 
 // ======================================================
-// 4. FETCH TRACKLIST FROM ALBUM
+// 4. TRACKLIST DEL ÁLBUM
 // ======================================================
-selectAlbumes.addEventListener('change', () => {
-    const idAlbum = selectAlbumes.value;
-    if (!idAlbum) return;
+selectAlbumes.addEventListener('change', async () => {
+    const idGrupo = selectAlbumes.value;
+    if (!idGrupo) return;
 
-    const idGrupo = selectAlbumes.options[selectAlbumes.selectedIndex].dataset.group;
+    const opcion = selectAlbumes.options[selectAlbumes.selectedIndex];
+    viewAlbum.textContent = opcion.dataset.title || opcion.text;
+    btnDescargar.disabled = true;
+    listaCanciones.innerHTML =
+        '<p style="text-align:center;color:var(--muted);font-size:16px;">Cargando canciones...</p>';
 
-    viewAlbum.textContent = selectAlbumes.options[selectAlbumes.selectedIndex].text;
-
-    // Llama de forma segura a la carga de portadas
     cargarPortada(idGrupo);
 
-    fetch(`https://musicbrainz.org{idAlbum}?inc=recordings&fmt=json`, {
-        headers: { "User-Agent": USER_AGENT }
-    })
-    .then(res => res.json())
-    .then(data => {
+    const miPeticion = ++peticionAlbum;
+
+    try {
+        // Buscamos primero una edición oficial; si no hay, cualquiera
+        let data = await fetchJSON(
+            `${MB_BASE}/release?release-group=${idGrupo}&status=official&inc=recordings&limit=1&fmt=json`
+        );
+        if (!data.releases || data.releases.length === 0) {
+            data = await fetchJSON(
+                `${MB_BASE}/release?release-group=${idGrupo}&inc=recordings&limit=1&fmt=json`
+            );
+        }
+        if (miPeticion !== peticionAlbum) return;
+
+        const release = data.releases?.[0];
+        // Unimos todos los discos del release
+        const tracks = (release?.media || []).flatMap(m => m.tracks || []);
+
         listaCanciones.innerHTML = '';
 
-        // CORREGIDO: Sintaxis limpia para acceder al array del primer disco compacto/vinilo
-        const tracks = data.media?.[0]?.tracks || [];
-
         if (tracks.length === 0) {
-            listaCanciones.innerHTML = '<p style="text-align:center;color:var(--muted)">No tracks found for this album.</p>';
+            listaCanciones.innerHTML =
+                '<p style="text-align:center;color:var(--muted)">No tracks found for this album.</p>';
             return;
         }
 
@@ -229,45 +224,48 @@ selectAlbumes.addEventListener('change', () => {
             const item = document.createElement('div');
             item.className = 'cancion-item';
 
+            const nombre = document.createElement('span');
+            nombre.className = 'cancion-nombre';
+            nombre.textContent = `${index + 1}. ${track.title}`;
+
             const select = document.createElement('select');
-            select.className = "nota-select";
+            select.className = 'nota-select';
 
             const empty = document.createElement('option');
             empty.value = "";
             empty.textContent = "-";
             select.appendChild(empty);
 
-            for (let i = 0; i <= 10; i++) {
+            for (let i = 1; i <= 10; i++) {
                 const opt = document.createElement('option');
                 opt.value = i;
                 opt.textContent = i;
                 select.appendChild(opt);
             }
 
-            item.innerHTML = `
-                <span class="cancion-nombre">${index + 1}. ${track.title}</span>
-            `;
+            item.appendChild(nombre);
             item.appendChild(select);
             listaCanciones.appendChild(item);
         });
 
         btnDescargar.disabled = false;
-    })
-    .catch(err => console.error("Error fetching tracklist:", err));
+    } catch (err) {
+        console.error("Error cargando canciones:", err);
+        listaCanciones.innerHTML =
+            '<p style="text-align:center;color:var(--muted)">Error al cargar las canciones. Inténtalo de nuevo.</p>';
+    }
 });
 
 // ======================================================
-// 5. RENDER AND DOWNLOAD IMAGE
+// 5. GENERAR Y DESCARGAR IMAGEN
 // ======================================================
 btnDescargar.addEventListener('click', () => {
     const contenedor = document.getElementById('zona-captura');
 
-    // Sincronizar las opciones seleccionadas en el DOM nativo para que salgan en el render
-    const selects = contenedor.querySelectorAll('.nota-select');
-    selects.forEach(sel => {
-        const opciones = sel.querySelectorAll('option');
-        opciones.forEach(opt => {
-            if (opt.value == sel.value) {
+    // Reflejar la opción elegida en el DOM para que html2canvas la pinte
+    contenedor.querySelectorAll('.nota-select').forEach(sel => {
+        Array.from(sel.options).forEach((opt, i) => {
+            if (i === sel.selectedIndex) {
                 opt.setAttribute('selected', 'selected');
             } else {
                 opt.removeAttribute('selected');
@@ -282,9 +280,8 @@ btnDescargar.addEventListener('click', () => {
         useCORS: true
     }).then(canvas => {
         const link = document.createElement('a');
-        // CORREGIDO: Añadidas las comillas invertidas obligatorias para interpolar texto de descarga
         link.download = `${viewAlbum.textContent.replace(/[^a-z0-9]/gi, '_')}_rate.png`;
         link.href = canvas.toDataURL('image/png');
         link.click();
-    });
+    }).catch(err => console.error("Error generando la imagen:", err));
 });
