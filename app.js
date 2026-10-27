@@ -177,21 +177,47 @@ function buscarAlbumes(idArtista) {
 }
 
 // ======================================================
-// 3. FETCH TRACKLIST FROM ALBUM
+// 3. FETCH ALBUM COVER ART
+// ======================================================
+function cargarPortada(idReleaseGroup) {
+    const coverArt = document.getElementById('cover-art');
+    if (!coverArt) return;
+
+    const url = `https://coverartarchive.org{idReleaseGroup}/front`;
+
+    fetch(url)
+        .then(res => {
+            if (!res.ok) throw new Error("No cover available");
+            coverArt.src = url;
+        })
+        .catch(() => {
+            // Imagen de marcador de posición si el disco no tiene portada en la API
+            coverArt.src = "https://wikimedia.org";
+        });
+}
+
+// ======================================================
+// 4. FETCH TRACKLIST FROM ALBUM
 // ======================================================
 selectAlbumes.addEventListener('change', () => {
     const idAlbum = selectAlbumes.value;
     if (!idAlbum) return;
 
+    const idGrupo = selectAlbumes.options[selectAlbumes.selectedIndex].dataset.group;
+
     viewAlbum.textContent = selectAlbumes.options[selectAlbumes.selectedIndex].text;
 
-    // FIXED: Patched path literal string handling
-    fetch(`https://musicbrainz.org/ws/2/release/${idAlbum}?inc=recordings&fmt=json`, {
-            headers: { "User-Agent": USER_AGENT }
-        })
+    // Llama de forma segura a la carga de portadas
+    cargarPortada(idGrupo);
+
+    fetch(`https://musicbrainz.org{idAlbum}?inc=recordings&fmt=json`, {
+        headers: { "User-Agent": USER_AGENT }
+    })
     .then(res => res.json())
     .then(data => {
         listaCanciones.innerHTML = '';
+
+        // CORREGIDO: Sintaxis limpia para acceder al array del primer disco compacto/vinilo
         const tracks = data.media?.[0]?.tracks || [];
 
         if (tracks.length === 0) {
@@ -231,11 +257,12 @@ selectAlbumes.addEventListener('change', () => {
 });
 
 // ======================================================
-// 4. RENDER AND DOWNLOAD IMAGE
+// 5. RENDER AND DOWNLOAD IMAGE
 // ======================================================
 btnDescargar.addEventListener('click', () => {
     const contenedor = document.getElementById('zona-captura');
 
+    // Sincronizar las opciones seleccionadas en el DOM nativo para que salgan en el render
     const selects = contenedor.querySelectorAll('.nota-select');
     selects.forEach(sel => {
         const opciones = sel.querySelectorAll('option');
@@ -255,8 +282,9 @@ btnDescargar.addEventListener('click', () => {
         useCORS: true
     }).then(canvas => {
         const link = document.createElement('a');
-    link.download = ${viewAlbum.textContent.replace(/[^a-z0-9]/gi, '_')}_rate.png;
-    link.href = canvas.toDataURL('image/png');
-    link.click();
+        // CORREGIDO: Añadidas las comillas invertidas obligatorias para interpolar texto de descarga
+        link.download = `${viewAlbum.textContent.replace(/[^a-z0-9]/gi, '_')}_rate.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
     });
 });
