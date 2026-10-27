@@ -1,6 +1,5 @@
 let timerBusqueda;
-// Asegúrate de cambiar esto por tu correo real para evitar bloqueos de MusicBrainz
-const USER_AGENT = "RankMusicApp/1.0.0 (contacto-tu-email@ejemplo.com)";
+const USER_AGENT = "RateThisAlbumApp/1.0.0 (info@ratethisalbum.com)";
 
 const inputArtista = document.getElementById('artista');
 const datalistArtistas = document.getElementById('lista-artistas');
@@ -10,17 +9,16 @@ const viewArtista = document.getElementById('view-artista');
 const viewAlbum = document.getElementById('view-album');
 const btnDescargar = document.getElementById('btn-descargar');
 
-// Actualizar la marca de agua con la URL real de tu página automáticamente
-document.getElementById('marca-agua').textContent = `HECHO EN: ${window.location.host.toUpperCase()}`;
+// The dynamic watermark uses the current web host name to strip away hardcoded GitHub profiles
+document.getElementById('marca-agua').textContent = `MADE AT: ${window.location.host.toUpperCase()}`;
 
-// 1. AUTOCOMPLETADO DE ARTISTAS (Espera 400ms tras teclear para no saturar la API)
+// 1. ARTIST AUTOCOMPLETE
 inputArtista.addEventListener('input', () => {
     clearTimeout(timerBusqueda);
     const busqueda = inputArtista.value.trim();
     if (busqueda.length < 2) return;
 
     timerBusqueda = setTimeout(() => {
-        // CORREGIDO: Añadido /artist?query=
         fetch(`https://musicbrainz.org{encodeURIComponent(busqueda)}&fmt=json`, {
             headers: { 'User-Agent': USER_AGENT }
         })
@@ -29,18 +27,17 @@ inputArtista.addEventListener('input', () => {
             datalistArtistas.innerHTML = '';
             if (!data.artists) return;
             
-            // Tomamos los primeros 5 resultados coincidentes
             data.artists.slice(0, 5).forEach(art => {
                 const option = document.createElement('option');
                 option.value = art.name;
                 option.dataset.id = art.id;
                 datalistArtistas.appendChild(option);
             });
-        }).catch(err => console.error("Error buscando artista:", err));
+        }).catch(err => console.error("Error fetching artist:", err));
     }, 400);
 });
 
-// Detectar selección definitiva del artista
+// Detect definitive artist selection
 inputArtista.addEventListener('change', () => {
     const opciones = Array.from(datalistArtistas.options);
     const seleccion = opciones.find(opt => opt.value === inputArtista.value);
@@ -52,18 +49,16 @@ inputArtista.addEventListener('change', () => {
     }
 });
 
-// 2. BUSCAR LOS ÁLBUMES DEL ARTISTA SELECCIONADO
+// 2. FETCH ALBUMS
 function buscarAlbumes(idArtista) {
-    // CORREGIDO: Añadido /release?artist=
     fetch(`https://musicbrainz.org{idArtista}&limit=40&fmt=json`, {
         headers: { 'User-Agent': USER_AGENT }
     })
     .then(res => res.json())
     .then(data => {
-        selectAlbumes.innerHTML = '<option value="">-- Elige un Álbum --</option>';
+        selectAlbumes.innerHTML = '<option value="">-- Select an Album --</option>';
         if (!data.releases) return;
         
-        // Filtrar nombres repetidos
         const discosUnicos = new Set();
         data.releases.forEach(rel => {
             if (!discosUnicos.has(rel.title)) {
@@ -75,29 +70,26 @@ function buscarAlbumes(idArtista) {
             }
         });
         selectAlbumes.disabled = false;
-    }).catch(err => console.error("Error buscando álbumes:", err));
+    }).catch(err => console.error("Error fetching albums:", err));
 }
 
-// 3. OBTENER LAS CANCIONES DEL ÁLBUM SELECCIONADO
+// 3. FETCH TRACKLIST
 selectAlbumes.addEventListener('change', () => {
     const idAlbum = selectAlbumes.value;
     if (!idAlbum) return;
 
     viewAlbum.textContent = selectAlbumes.options[selectAlbumes.selectedIndex].text;
 
-    // CORREGIDO: Añadido /release/ antes del ID
     fetch(`https://musicbrainz.org{idAlbum}?inc=recordings&fmt=json`, {
         headers: { 'User-Agent': USER_AGENT }
     })
     .then(res => res.json())
     .then(data => {
         listaCanciones.innerHTML = '';
-        
-        // MusicBrainz anida los tracks dentro de media
         const tracks = data.media?.[0]?.tracks || [];
         
         if (tracks.length === 0) {
-            listaCanciones.innerHTML = '<p style="text-align:center;color:var(--muted)">No se encontraron canciones para este disco.</p>';
+            listaCanciones.innerHTML = '<p style="text-align:center;color:var(--muted)">No tracks found for this album.</p>';
             return;
         }
 
@@ -111,32 +103,30 @@ selectAlbumes.addEventListener('change', () => {
             listaCanciones.appendChild(item);
         });
         btnDescargar.disabled = false;
-    }).catch(err => console.error("Error obteniendo canciones:", err));
+    }).catch(err => console.error("Error fetching tracklist:", err));
 });
 
-// Limitar de forma estricta que solo se escriba del 1 al 10
 function validarRango(input) {
     let num = parseInt(input.value);
     if (num > 10) input.value = 10;
     if (num < 1) input.value = '';
 }
 
-// 4. GENERAR Y DESCARGAR LA IMAGEN FINAL (html2canvas)
+// 4. IMAGE RENDER & DOWNLOAD
 btnDescargar.addEventListener('click', () => {
     const contenedor = document.getElementById('zona-captura');
     
-    // Forzar que los inputs muestren su valor actual en el pantallazo del canvas
     const inputs = contenedor.querySelectorAll('.nota-input');
     inputs.forEach(input => input.setAttribute('value', input.value));
 
     html2canvas(contenedor, {
-        scale: 2, // Duplica la resolución de imagen para que se lea nítida
+        scale: 2, 
         backgroundColor: '#ffffff',
         logging: false,
         useCORS: true
     }).then(canvas => {
         const link = document.createElement('a');
-        link.download = `${viewAlbum.textContent.replace(/[^a-z0-9]/gi, '_')}_ranking.png`;
+        link.download = `${viewAlbum.textContent.replace(/[^a-z0-9]/gi, '_')}_rate.png`;
         link.href = canvas.toDataURL('image/png');
         link.click();
     });
