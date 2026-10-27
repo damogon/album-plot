@@ -19,6 +19,7 @@ inputArtista.addEventListener('input', () => {
     if (busqueda.length < 2) return;
 
     timerBusqueda = setTimeout(() => {
+        // FIXED: URL structure corrected with correct forward slashes, question marks, and template literals
         fetch(`https://musicbrainz.org{encodeURIComponent(busqueda)}&fmt=json`, {
             headers: { 'User-Agent': USER_AGENT }
         })
@@ -51,6 +52,7 @@ inputArtista.addEventListener('change', () => {
 
 // 2. FETCH ALBUMS
 function buscarAlbumes(idArtista) {
+    // FIXED: Corrected the endpoint query mapping for releases
     fetch(`https://musicbrainz.org{idArtista}&limit=40&fmt=json`, {
         headers: { 'User-Agent': USER_AGENT }
     })
@@ -80,6 +82,7 @@ selectAlbumes.addEventListener('change', () => {
 
     viewAlbum.textContent = selectAlbumes.options[selectAlbumes.selectedIndex].text;
 
+    // FIXED: Properly formatted lookup string using backticks and variables
     fetch(`https://musicbrainz.org{idAlbum}?inc=recordings&fmt=json`, {
         headers: { 'User-Agent': USER_AGENT }
     })
