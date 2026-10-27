@@ -7,12 +7,11 @@ let timerBusqueda;
 
 // DOM Elements
 const inputArtista = document.getElementById('artista');
-const dropdownArtistas = document.getElementById('dropdown-artistas'); // New custom dropdown element
+const dropdownArtistas = document.getElementById('dropdown-artistas'); 
 const selectAlbumes = document.getElementById('albumes');
 const listaCanciones = document.getElementById('lista-canciones');
 const viewArtista = document.getElementById('view-artista');
 const viewAlbum = document.getElementById('view-album');
-const coverArt = document.getElementById('cover-art');
 const btnDescargar = document.getElementById('btn-descargar');
 
 // Dynamic Watermark setup
@@ -65,15 +64,14 @@ inputArtista.addEventListener('input', () => {
                     return;
                 }
 
-                // Remove duplicate IDs from the root payload response
+                // Remove duplicate IDs from the response
                 const unicos = new Map();
                 data.artists.forEach(a => unicos.set(a.id, a));
 
-                // Strict validation array sequence
                 const artistasParaVerificar = [...unicos.values()];
                 const artistasValidados = [];
 
-                // Sequential scanning logic prevents race condition rendering bugs
+                // Sequential scanning logic to prevent race conditions and filter empty artists
                 for (const art of artistasParaVerificar) {
                     const nombreApiLimpio = limpiarTexto(art.name);
 
@@ -83,7 +81,7 @@ inputArtista.addEventListener('input', () => {
                             const response = await fetch(subQueryUrl, { headers: { "User-Agent": USER_AGENT } });
                             const albumData = await response.json();
 
-                            // Validate that at least 1 record maps explicitly as a physical LP "Album"
+                            // Validate that at least 1 record maps explicitly as a primary LP "Album"
                             const tieneLPs = albumData.releases?.some(rel => rel["release-group"]?.["primary-type"] === "Album");
                             
                             if (tieneLPs) {
@@ -94,7 +92,7 @@ inputArtista.addEventListener('input', () => {
                         }
                     }
 
-                    // Cut evaluation early once we collect enough clean, matching results
+                    // Cut evaluation early once we collect enough clean results
                     if (artistasValidos.length >= 6) break;
                 }
 
@@ -103,7 +101,7 @@ inputArtista.addEventListener('input', () => {
                     return;
                 }
 
-                // Render custom interactive dropdown option items
+                // Render custom dropdown items
                 artistasValidos.forEach(art => {
                     const item = document.createElement('div');
                     item.textContent = art.name;
@@ -114,13 +112,13 @@ inputArtista.addEventListener('input', () => {
                     item.style.color = 'var(--ink)';
                     item.style.fontFamily = "'Nunito', sans-serif";
 
-                    // Hover background effect
+                    // Hover effects
                     item.addEventListener('mouseover', () => item.style.background = 'var(--bg)');
                     item.addEventListener('mouseout', () => item.style.background = 'transparent');
 
                     // Selection logic triggers album queries smoothly
                     item.addEventListener('click', () => {
-                        inputArtista.value = art.name; // Sets exact official name (e.g. ROSALÍA)
+                        inputArtista.value = art.name; 
                         viewArtista.textContent = art.name;
                         dropdownArtistas.style.display = 'none';
                         buscarAlbumes(art.id);
@@ -254,3 +252,7 @@ btnDescargar.addEventListener('click', () => {
     }).then(canvas => {
         const link = document.createElement('a');
         link.download = `${viewAlbum.textContent.replace(/[^a-z0-9]/gi, '_')}_rate.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+    });
+});
