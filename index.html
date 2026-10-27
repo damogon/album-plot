@@ -5,13 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>RateThisAlbum - Universal Music Rating Tool</title>
   
-  <!-- Esthetic Google Fonts -->
-  <link rel="preconnect" href="https://googleapis.com">
-  <link rel="preconnect" href="https://gstatic.com" crossorigin>
-  <link href="https://googleapis.com/css2?family=Nunito:wght@400;700;800&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
+  <!-- Correct Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;700;800&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
   
-  <!-- External library to convert HTML to a downloadable image -->
-  <script src="https://cloudflare.com"></script>
+  <!-- Correct html2canvas library -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
   <style>
     :root {
@@ -46,7 +46,12 @@
       line-height: 1.1;
       text-transform: uppercase;
     }
-    header h1 span { color: var(--c); }
+
+    /* Color ONLY for "This" */
+    header h1 .highlight {
+      color: var(--c);
+    }
+
     header p { margin: 8px 0 0; color: var(--muted); font-size: 16px; }
 
     .panel {
@@ -95,8 +100,19 @@
       margin-top: 24px;
       position: relative;
     }
-    .header-poster { text-align: center; margin-bottom: 24px; border-bottom: 2px dashed var(--line); padding-bottom: 16px; }
-    .header-poster h3 { font-family: 'Oswald', sans-serif; font-size: 28px; margin: 0; text-transform: uppercase; }
+
+    .header-poster {
+      text-align: center;
+      margin-bottom: 24px;
+      border-bottom: 2px dashed var(--line);
+      padding-bottom: 16px;
+    }
+    .header-poster h3 {
+      font-family: 'Oswald', sans-serif;
+      font-size: 28px;
+      margin: 0;
+      text-transform: uppercase;
+    }
     .header-poster p { margin: 4px 0 0; color: var(--muted); font-weight: 700; }
 
     .cancion-item {
@@ -156,7 +172,7 @@
 
 <div class="wrap">
   <header>
-    <h1>RateThis<span>Album</span></h1>
+    <h1>Rate<span class="highlight">This</span>Album</h1>
     <p>Search for an artist, pick an album, rate each track from 1 to 10, and download your custom card to share on social media.</p>
   </header>
 
@@ -184,7 +200,6 @@
         <p style="text-align:center; color:var(--muted); font-size:16px;">Select an album to generate the tracklist.</p>
       </div>
 
-      <!-- Watermark text will be replaced dynamically via JS -->
       <div class="watermark" id="marca-agua">RATETHISALBUM</div>
     </div>
 
