@@ -1,28 +1,27 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ranker de Música Universal</title>
+  <title>RateThisAlbum - Universal Music Rating Tool</title>
   
-  <!-- Tipografías estéticas de Google Fonts -->
+  <!-- Esthetic Google Fonts -->
   <link rel="preconnect" href="https://googleapis.com">
   <link rel="preconnect" href="https://gstatic.com" crossorigin>
   <link href="https://googleapis.com/css2?family=Nunito:wght@400;700;800&family=Oswald:wght@500;600;700&display=swap" rel="stylesheet">
   
-  <!-- Librería externa para convertir el diseño en imagen descargable -->
+  <!-- External library to convert HTML to a downloadable image -->
   <script src="https://cloudflare.com"></script>
 
   <style>
-    /* Variables de estilo inspiradas en Kink Jars */
     :root {
-      --c: #e63946;          /* Color de acento (Rojo) */
-      --on-c: #fff;          /* Texto sobre color de acento */
-      --ink: #1d1a17;        /* Color del texto principal */
-      --bg: #fbf6ef;         /* Fondo de la página (Crema claro) */
-      --card: #fff;          /* Fondo de los bloques */
-      --muted: #6b625a;      /* Texto secundario/atenuado */
-      --line: #e9e0d5;       /* Bordes y líneas */
+      --c: #e63946;          /* Accent Color (Red) */
+      --on-c: #fff;          /* Text on accent color */
+      --ink: #1d1a17;        /* Primary text color */
+      --bg: #fbf6ef;         /* Page background (Light cream) */
+      --card: #fff;          /* Card background */
+      --muted: #6b625a;      /* Secondary/muted text */
+      --line: #e9e0d5;       /* Borders and lines */
     }
 
     * { box-sizing: border-box; }
@@ -75,7 +74,6 @@
       line-height: 1.2;
     }
 
-    /* Buscadores */
     .buscador-group { display: flex; flex-direction: column; gap: 12px; }
     input[type=text], select {
       font: inherit;
@@ -89,7 +87,6 @@
     }
     input[type=text]:focus, select:focus { border-color: var(--ink); outline: none; }
 
-    /* Bloque visual que se convertirá en foto */
     #zona-captura {
       background: var(--card);
       border: 2px solid var(--line);
@@ -102,7 +99,6 @@
     .header-poster h3 { font-family: 'Oswald', sans-serif; font-size: 28px; margin: 0; text-transform: uppercase; }
     .header-poster p { margin: 4px 0 0; color: var(--muted); font-weight: 700; }
 
-    /* Lista de canciones */
     .cancion-item {
       display: grid;
       grid-template-columns: 1fr 70px;
@@ -114,7 +110,6 @@
     .cancion-item:first-of-type { border-top: 0; }
     .cancion-nombre { font-size: 17px; font-weight: 700; color: var(--ink); }
     
-    /* Inputs de nota del 1 al 10 */
     .nota-input {
       font-family: 'Oswald', sans-serif;
       font-size: 20px;
@@ -126,7 +121,6 @@
       background: #fff;
     }
 
-    /* Marca de agua viral obligatoria */
     .watermark {
       text-align: center;
       font-size: 12px;
@@ -136,7 +130,6 @@
       letter-spacing: 0.05em;
     }
 
-    /* Botón de descarga interactivo */
     .big-button {
       display: block;
       width: 100%;
@@ -163,45 +156,42 @@
 
 <div class="wrap">
   <header>
-    <h1>Rank <span>Music</span></h1>
-    <p>Busca un artista, elige su álbum, puntúa cada canción del 1 al 10 y descarga tu tarjeta personalizada para compartir en redes.</p>
+    <h1>RateThis<span>Album</span></h1>
+    <p>Search for an artist, pick an album, rate each track from 1 to 10, and download your custom card to share on social media.</p>
   </header>
 
   <main>
-    <!-- Buscador e Interacción -->
     <section class="panel">
-      <div class="step">Configuración</div>
-      <h2>Encuentra tu álbum</h2>
+      <div class="step">Setup</div>
+      <h2>Find Your Album</h2>
       <div class="buscador-group">
-        <input type="text" id="artista" placeholder="Escribe un artista (Ej: Rosalía, Daft Punk...)" list="lista-artistas" autocomplete="off">
+        <input type="text" id="artista" placeholder="Type an artist (e.g., Rosalía, Daft Punk...)" list="lista-artistas" autocomplete="off">
         <datalist id="lista-artistas"></datalist>
 
         <select id="albumes" disabled>
-          <option value="">-- Elige un artista primero --</option>
+          <option value="">-- Choose an artist first --</option>
         </select>
       </div>
     </section>
 
-    <!-- Zona visual (El Poster resultante) -->
     <div id="zona-captura">
       <div class="header-poster">
-        <h3 id="view-album">Tu Álbum</h3>
-        <p id="view-artista">Artista</p>
+        <h3 id="view-album">Your Album</h3>
+        <p id="view-artista">Artist</p>
       </div>
       
       <div id="lista-canciones">
-        <p style="text-align:center; color:var(--muted); font-size:16px;">Selecciona música para generar el listado.</p>
+        <p style="text-align:center; color:var(--muted); font-size:16px;">Select an album to generate the tracklist.</p>
       </div>
 
-      <!-- Marca de agua automática para cuando compartan la foto en Twitter -->
-      <div class="watermark" id="marca-agua">HECHO EN: TU-USUARIO.GITHUB.IO</div>
+      <!-- Watermark text will be replaced dynamically via JS -->
+      <div class="watermark" id="marca-agua">RATETHISALBUM</div>
     </div>
 
-    <button class="big-button" id="btn-descargar" disabled>Guardar Imagen</button>
+    <button class="big-button" id="btn-descargar" disabled>Save Image</button>
   </main>
 </div>
 
-<!-- Conexión con la lógica -->
 <script src="app.js"></script>
 </body>
 </html>
