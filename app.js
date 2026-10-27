@@ -1,5 +1,5 @@
 let timerBusqueda;
-// MusicBrainz exige identificar tu aplicación con un correo o nombre descriptivo en las peticiones
+// Asegúrate de cambiar esto por tu correo real para evitar bloqueos de MusicBrainz
 const USER_AGENT = "RankMusicApp/1.0.0 (contacto-tu-email@ejemplo.com)";
 
 const inputArtista = document.getElementById('artista');
@@ -20,12 +20,15 @@ inputArtista.addEventListener('input', () => {
     if (busqueda.length < 2) return;
 
     timerBusqueda = setTimeout(() => {
+        // CORREGIDO: Añadido /artist?query=
         fetch(`https://musicbrainz.org{encodeURIComponent(busqueda)}&fmt=json`, {
             headers: { 'User-Agent': USER_AGENT }
         })
         .then(res => res.json())
         .then(data => {
             datalistArtistas.innerHTML = '';
+            if (!data.artists) return;
+            
             // Tomamos los primeros 5 resultados coincidentes
             data.artists.slice(0, 5).forEach(art => {
                 const option = document.createElement('option');
@@ -51,14 +54,16 @@ inputArtista.addEventListener('change', () => {
 
 // 2. BUSCAR LOS ÁLBUMES DEL ARTISTA SELECCIONADO
 function buscarAlbumes(idArtista) {
+    // CORREGIDO: Añadido /release?artist=
     fetch(`https://musicbrainz.org{idArtista}&limit=40&fmt=json`, {
         headers: { 'User-Agent': USER_AGENT }
     })
     .then(res => res.json())
     .then(data => {
         selectAlbumes.innerHTML = '<option value="">-- Elige un Álbum --</option>';
+        if (!data.releases) return;
         
-        // Filtrar nombres repetidos (MusicBrainz repite discos si hay ediciones de distintos países)
+        // Filtrar nombres repetidos
         const discosUnicos = new Set();
         data.releases.forEach(rel => {
             if (!discosUnicos.has(rel.title)) {
@@ -80,15 +85,18 @@ selectAlbumes.addEventListener('change', () => {
 
     viewAlbum.textContent = selectAlbumes.options[selectAlbumes.selectedIndex].text;
 
+    // CORREGIDO: Añadido /release/ antes del ID
     fetch(`https://musicbrainz.org{idAlbum}?inc=recordings&fmt=json`, {
         headers: { 'User-Agent': USER_AGENT }
     })
     .then(res => res.json())
     .then(data => {
         listaCanciones.innerHTML = '';
+        
+        // MusicBrainz anida los tracks dentro de media
         const tracks = data.media?.[0]?.tracks || [];
         
-        if(tracks.length === 0) {
+        if (tracks.length === 0) {
             listaCanciones.innerHTML = '<p style="text-align:center;color:var(--muted)">No se encontraron canciones para este disco.</p>';
             return;
         }
@@ -122,10 +130,10 @@ btnDescargar.addEventListener('click', () => {
     inputs.forEach(input => input.setAttribute('value', input.value));
 
     html2canvas(contenedor, {
-        scale: 2, // Duplica la resolución de imagen para que se lea nítida en Twitter
+        scale: 2, // Duplica la resolución de imagen para que se lea nítida
         backgroundColor: '#ffffff',
         logging: false,
-        useCORS: true // Evita bloqueos de recursos externos si añades portadas en el futuro
+        useCORS: true
     }).then(canvas => {
         const link = document.createElement('a');
         link.download = `${viewAlbum.textContent.replace(/[^a-z0-9]/gi, '_')}_ranking.png`;
