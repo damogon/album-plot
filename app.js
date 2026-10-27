@@ -37,13 +37,11 @@ inputArtista.addEventListener('input', () => {
     const busqueda = inputArtista.value.trim();
     if (busqueda.length < 2) return;
 
-    // Normalizamos para ignorar tildes
     const normalizada = sinTildes(busqueda);
 
     timerBusqueda = setTimeout(() => {
 
-        // MusicBrainz permite buscar sin tildes directamente
-        const url = `https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(normalizada)}&fmt=json`;
+        const url = `https://musicbrainz.org/ws/2/artist/?query=${encodeURIComponent(normalizada)}&limit=25&fmt=json`;
 
         fetch(url, { headers: { "User-Agent": USER_AGENT } })
             .then(res => res.json())
@@ -57,7 +55,7 @@ inputArtista.addEventListener('input', () => {
                 data.artists.forEach(a => unicos.set(a.id, a));
 
                 [...unicos.values()]
-                    .slice(0, 8) // más resultados, pero sin romper nada
+                    .slice(0, 8)
                     .forEach(art => {
                         const option = document.createElement('option');
                         option.value = art.name;
