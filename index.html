@@ -176,44 +176,40 @@
     <p>Search for an artist, pick an album, rate each track from 1 to 10, and download your custom card to share on social media.</p>
   </header>
 
-  <main>
-    <section class="panel">
-      <div class="step">Setup</div>
-      <h2>Find Your Album</h2>
-      <div class="buscador-group">
-        <input type="text" id="artista" placeholder="Type an artist (e.g., Rosalía, Daft Punk...)" list="lista-artistas" autocomplete="off">
-        <datalist id="lista-artistas"></datalist>
-
-        <select id="albumes" disabled>
-          <option value="">-- Choose an artist first --</option>
-        </select>
-      </div>
-    </section>
-
-    <div id="zona-captura">
-      <div class="header-poster">
-          <img id="cover-art" src="" alt="Album Cover" style="
-              width: 180px;
-              height: 180px;
-              object-fit: cover;
-              border-radius: 12px;
-              border: 3px solid var(--line);
-              margin: 0 auto 16px auto;
-              display: block;
-          ">
-          <h3 id="view-album">Your Album</h3>
-          <p id="view-artista">Artist</p>
-      </div>
+<main>
+  <!-- Configuration & Search -->
+  <section class="panel">
+    <div class="step">Setup</div>
+    <h2>Find Your Album</h2>
+    <div class="buscador-group" style="position: relative;">
+      <!-- Removed native list attribute to handle a clean custom dropdown interface instead -->
+      <input type="text" id="artista" placeholder="Type an artist (e.g., Rosalía, Daft Punk...)" autocomplete="off">
       
-      <div id="lista-canciones">
-        <p style="text-align:center; color:var(--muted); font-size:16px;">Select an album to generate the tracklist.</p>
-      </div>
+      <!-- Custom overlay list element for artists (mimics a native select dropdown menu) -->
+      <div id="dropdown-artistas" style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: var(--card); border: 2px solid var(--ink); border-radius: 14px; max-height: 250px; overflow-y: auto; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.1); margin-top: 4px;"></div>
 
-      <div class="watermark" id="marca-agua">RATETHISALBUM</div>
+      <select id="albumes" disabled style="margin-top: 12px;">
+        <option value="">-- Choose an artist first --</option>
+      </select>
+    </div>
+  </section>
+
+  <!-- Capture Zone -->
+  <div id="zona-captura">
+    <div class="header-poster">
+      <h3 id="view-album">Your Album</h3>
+      <p id="view-artista">Artist</p>
+    </div>
+    
+    <div id="lista-canciones">
+      <p style="text-align:center; color:var(--muted); font-size:16px;">Select an album to generate the tracklist.</p>
     </div>
 
-    <button class="big-button" id="btn-descargar" disabled>Save Image</button>
-  </main>
+    <div class="watermark" id="marca-agua">RATETHISALBUM</div>
+  </div>
+
+  <button class="big-button" id="btn-descargar" disabled>Save Image</button>
+</main>
 </div>
 
 <script src="app.js"></script>
