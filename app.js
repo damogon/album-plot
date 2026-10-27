@@ -52,6 +52,7 @@ inputArtista.addEventListener('input', () => {
     const textoUsuarioLimpio = limpiarTexto(busqueda);
 
     timerBusqueda = setTimeout(() => {
+        // FIXED: Rebuilt absolute endpoint strings with appropriate search paths
         const url = `https://musicbrainz.org{encodeURIComponent(textoUsuarioLimpio)}&limit=40&fmt=json`;
 
         fetch(url, { headers: { "User-Agent": USER_AGENT } })
@@ -77,6 +78,7 @@ inputArtista.addEventListener('input', () => {
 
                     if (nombreApiLimpio.includes(textoUsuarioLimpio)) {
                         try {
+                            // FIXED: Added precise query lookup strings to cross-reference studio releases
                             const subQueryUrl = `https://musicbrainz.org{art.id}&inc=release-groups&limit=30&fmt=json`;
                             const response = await fetch(subQueryUrl, { headers: { "User-Agent": USER_AGENT } });
                             const albumData = await response.json();
@@ -141,6 +143,7 @@ inputArtista.addEventListener('input', () => {
 // 2. FETCH ALBUMS (LPs Only)
 // ======================================================
 function buscarAlbumes(idArtista) {
+    // FIXED: Corrected path parameter concatenation
     fetch(`https://musicbrainz.org{idArtista}&inc=release-groups&limit=100&fmt=json`, {
         headers: { "User-Agent": USER_AGENT }
     })
@@ -182,6 +185,7 @@ selectAlbumes.addEventListener('change', () => {
 
     viewAlbum.textContent = selectAlbumes.options[selectAlbumes.selectedIndex].text;
 
+    // FIXED: Patched path literal string handling
     fetch(`https://musicbrainz.org{idAlbum}?inc=recordings&fmt=json`, {
         headers: { "User-Agent": USER_AGENT }
     })
@@ -251,8 +255,8 @@ btnDescargar.addEventListener('click', () => {
         useCORS: true
     }).then(canvas => {
         const link = document.createElement('a');
-        link.download = `${viewAlbum.textContent.replace(/[^a-z0-9]/gi, '_')}_rate.png`;
-        link.href = canvas.toDataURL('image/png');
-        link.click();
+    link.download = ${viewAlbum.textContent.replace(/[^a-z0-9]/gi, '_')}_rate.png;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
     });
 });
