@@ -9,7 +9,8 @@ const SITE_URL = "damogon.github.io/album-plot/";
 const CARD_W = 540;     // ancho fijo de la tarjeta (px de diseño)
 const EXPORT_W = 1080;  // ancho de la imagen exportada
 
-const COLORES_SORPRESA = ["#e63946", "#e8590c", "#2b9348", "#2563eb", "#7c3aed", "#d6336c"];
+// Colores pastel disponibles (los mismos que los círculos del HTML)
+const COLORES_SORPRESA = ["#f28c9f", "#ffad80", "#f2cc5c", "#7dd3a8", "#7ab6f7", "#b69cf5"];
 
 // Placeholder embebido (SVG en data URI) para portadas que no existen
 const PLACEHOLDER_COVER =
@@ -27,12 +28,24 @@ let peticionArtista = 0; // para descartar respuestas antiguas
 let peticionAlbum = 0;
 let titulosActuales = []; // nombres de las canciones del álbum elegido
 let notas = [];           // nota de cada canción (null = sin puntuar)
+let indiceActual = 0;     // canción en foco (modo "una cada vez")
+let modoLista = false;    // false = una cada vez, true = lista completa
+let timerAvance;
 
 // DOM Elements
 const inputArtista = document.getElementById('artista');
 const dropdownArtistas = document.getElementById('dropdown-artistas');
 const selectAlbumes = document.getElementById('albumes');
 const listaCanciones = document.getElementById('lista-canciones');
+const msgCanciones = document.getElementById('msg-canciones');
+const modos = document.getElementById('modos');
+const vistaUno = document.getElementById('vista-uno');
+const navPuntos = document.getElementById('nav-puntos');
+const focoNum = document.getElementById('foco-num');
+const focoTitulo = document.getElementById('foco-titulo');
+const focoNotas = document.getElementById('foco-notas');
+const btnAtras = document.getElementById('btn-atras');
+const btnSiguiente = document.getElementById('btn-siguiente');
 const viewArtista = document.getElementById('view-artista');
 const viewAlbum = document.getElementById('view-album');
 const btnDescargar = document.getElementById('btn-descargar');
@@ -102,6 +115,46 @@ function ajustarEscala() {
 window.addEventListener('resize', ajustarEscala);
 
 // ======================================================
+// GEOMETRÍA para colocar las etiquetas sin que nada las tape
+// ======================================================
+// ¿El segmento s corta el rectángulo r? (Liang–Barsky)
+function rectCortaSegmento(r, s) {
+    let t0 = 0, t1 = 1;
+    const dx = s.x2 - s.x1, dy = s.y2 - s.y1;
+    const p = [-dx, dx, -dy, dy];
+    const q = [s.x1 - r.x, r.x + r.w - s.x1, s.y1 - r.y, r.y + r.h - s.y1];
+    for (let k = 0; k < 4; k++) {
+        if (p[k] === 0) {
+            if (q[k] < 0) return false;
+        } else {
+            const t = q[k] / p[k];
+            if (p[k] < 0) {
+                if (t > t1) return false;
+                if (t > t0) t0 = t;
+            } else {
+                if (t < t0) return false;
+                if (t < t1) t1 = t;
+            }
+        }
+    }
+    return true;
+}
+
+function circuloToca(r, cx, cy, rad) {
+    const nx = Math.max(r.x, Math.min(cx, r.x + r.w));
+    const ny = Math.max(r.y, Math.min(cy, r.y + r.h));
+    return (nx - cx) ** 2 + (ny - cy) ** 2 < rad * rad;
+}
+
+function rectsSolapan(a, b) {
+    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function inflar(r, d) {
+    return { x: r.x - d, y: r.y - d, w: r.w + 2 * d, h: r.h + 2 * d };
+}
+
+// ======================================================
 // GRÁFICA (canvas): notas por canción
 // ======================================================
 function dibujarGrafica() {
@@ -126,22 +179,27 @@ function dibujarGrafica() {
 
     const n = titulosActuales.length;
     const m = { l: 34, r: 22, t: 30, b: 40 };
+    const PAD = 16;   // separación entre el eje Y y la primera nota (y entre la última y el borde)
+    const R = 6;      // radio de los puntos
     const titulos = titulosActuales.map(t => recortar(t, 20));
     let tam = 12;
+
+    const posX = (i, pw) => n === 1
+        ? m.l + pw / 2
+        : m.l + PAD + (pw - 2 * PAD) * i / (n - 1);
 
     // Márgenes según el texto real de los títulos (en diagonal, anclados a la derecha)
     if (n > 0) {
         for (let it = 0; it < 3; it++) {
             const pw0 = W - m.l - m.r;
-            const paso0 = n > 1 ? pw0 / (n - 1) : pw0;
+            const paso0 = n > 1 ? (pw0 - 2 * PAD) / (n - 1) : pw0;
             tam = Math.max(9, Math.min(13, paso0 * 0.7));
             ctx.font = `700 ${tam}px 'Nunito', sans-serif`;
 
             let deficit = 0;
             titulos.forEach((t, i) => {
-                const x = n === 1 ? m.l + pw0 / 2 : m.l + pw0 * i / (n - 1);
                 const w = ctx.measureText(t).width;
-                deficit = Math.max(deficit, w * Math.SQRT1_2 + tam * 0.4 - x);
+                deficit = Math.max(deficit, w * Math.SQRT1_2 + tam * 0.4 - posX(i, pw0));
             });
             if (deficit > 0) m.l = Math.min(W * 0.35, m.l + deficit);
         }
@@ -152,8 +210,9 @@ function dibujarGrafica() {
 
     const pw = W - m.l - m.r;
     const ph = H - m.t - m.b;
-    const xAt = i => n === 1 ? m.l + pw / 2 : m.l + pw * i / (n - 1);
+    const xAt = i => posX(i, pw);
     const yAt = v => m.t + ph * (1 - v / 10);
+    const yEje = m.t + ph;
 
     // Rejilla horizontal y eje Y (0 a 10)
     ctx.font = "600 12px 'Oswald', sans-serif";
@@ -176,7 +235,7 @@ function dibujarGrafica() {
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(m.l, m.t);
-    ctx.lineTo(m.l, m.t + ph);
+    ctx.lineTo(m.l, yEje);
     ctx.stroke();
 
     if (n === 0) return;
@@ -190,12 +249,12 @@ function dibujarGrafica() {
         ctx.strokeStyle = ink;
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.moveTo(x, m.t + ph);
-        ctx.lineTo(x, m.t + ph + 5);
+        ctx.moveTo(x, yEje);
+        ctx.lineTo(x, yEje + 5);
         ctx.stroke();
 
         ctx.save();
-        ctx.translate(x + 3, m.t + ph + 12);
+        ctx.translate(x + 3, yEje + 12);
         ctx.rotate(-Math.PI / 4);
         ctx.fillStyle = notas[i] === null ? muted : ink;
         ctx.fillText(titulo, 0, 0);
@@ -216,7 +275,7 @@ function dibujarGrafica() {
     puntos.forEach(p => {
         ctx.beginPath();
         ctx.moveTo(p.x, p.y + 8);
-        ctx.lineTo(p.x, m.t + ph);
+        ctx.lineTo(p.x, yEje);
         ctx.stroke();
     });
     ctx.restore();
@@ -224,7 +283,7 @@ function dibujarGrafica() {
     // Línea continua
     if (puntos.length > 1) {
         ctx.strokeStyle = accent;
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 4;
         ctx.lineJoin = 'round';
         ctx.lineCap = 'round';
         ctx.beginPath();
@@ -232,21 +291,74 @@ function dibujarGrafica() {
         ctx.stroke();
     }
 
-    // Puntos y valor sobre cada punto
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
-    ctx.font = "600 14px 'Oswald', sans-serif";
+    // Puntos
     puntos.forEach(p => {
         ctx.fillStyle = accent;
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = ink;
+        ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(p.x, p.y, 5.5, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, R, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
+    });
 
+    // ---- Etiquetas con el valor: se colocan donde no las cruce ninguna línea ----
+    const ETQ_H = 14;
+    ctx.font = "600 14px 'Oswald', sans-serif";
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    const segmentos = [];
+    for (let k = 0; k < puntos.length - 1; k++) {
+        segmentos.push({ x1: puntos[k].x, y1: puntos[k].y, x2: puntos[k + 1].x, y2: puntos[k + 1].y });
+    }
+    const colocadas = [];
+
+    puntos.forEach((p, idx) => {
+        const texto = String(p.v);
+        const w = ctx.measureText(texto).width;
+        const h2 = ETQ_H / 2;
+        const v = R + 3 + h2;           // desplazamiento vertical (arriba / abajo)
+        const hz = w / 2 + R + 4;       // desplazamiento horizontal (izquierda / derecha)
+        const dg = w / 2 + R + 2;       // desplazamiento horizontal de las diagonales
+
+        // Orden de preferencia: arriba, abajo, derecha, izquierda y diagonales
+        const candidatos = [
+            { dx: 0, dy: -v }, { dx: 0, dy: v },
+            { dx: hz, dy: 0 }, { dx: -hz, dy: 0 },
+            { dx: dg, dy: -(R + h2) }, { dx: -dg, dy: -(R + h2) },
+            { dx: dg, dy: R + h2 }, { dx: -dg, dy: R + h2 }
+        ];
+
+        const lineaPuntos = { x1: p.x, y1: p.y + 8, x2: p.x, y2: yEje };
+
+        let mejor = null;
+        candidatos.forEach(c => {
+            const cx = p.x + c.dx, cy = p.y + c.dy;
+            const r = { x: cx - w / 2, y: cy - h2, w, h: ETQ_H };
+            const rr = inflar(r, 2);
+
+            let score = 0;
+            if (r.x < 0 || r.x + r.w > W || r.y < 0) score += 100;   // fuera del canvas
+            if (r.y + r.h > yEje + 1) score += 100;                  // por debajo del eje X
+            if (r.x < m.l + 2) score += 6;                           // pisa el eje Y
+            segmentos.forEach(s => { if (rectCortaSegmento(rr, s)) score += 10; });
+            puntos.forEach(q => { if (circuloToca(rr, q.x, q.y, R + 1)) score += 10; });
+            colocadas.forEach(o => { if (rectsSolapan(rr, o)) score += 10; });
+            if (rectCortaSegmento(rr, lineaPuntos)) score += 3;      // la línea de puntos: penalización suave
+
+            if (!mejor || score < mejor.score) mejor = { score, cx, cy, rect: rr };
+        });
+
+        colocadas.push(mejor.rect);
+
+        // Halo blanco para que se lea aunque pase una línea de la rejilla por detrás
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = '#fff';
+        ctx.strokeText(texto, mejor.cx, mejor.cy);
         ctx.fillStyle = ink;
-        ctx.fillText(String(p.v), p.x, p.y - 10);
+        ctx.fillText(texto, mejor.cx, mejor.cy);
     });
 }
 
@@ -280,6 +392,7 @@ function actualizarProgreso() {
 }
 
 function refrescarPreview() {
+    actualizarEntrada();
     dibujarGrafica();
     actualizarMedia();
     actualizarProgreso();
@@ -298,8 +411,148 @@ if (document.fonts && document.fonts.ready) {
 }
 
 // ======================================================
-// BOTONES DE NOTA (0-10)
+// ENTRADA DE NOTAS: vistas y estado
 // ======================================================
+function mensajeCanciones(texto) {
+    msgCanciones.textContent = texto;
+    actualizarVistas();
+}
+
+function actualizarVistas() {
+    const hay = titulosActuales.length > 0;
+    msgCanciones.hidden = hay;
+    modos.hidden = !hay;
+    vistaUno.hidden = !hay || modoLista;
+    listaCanciones.hidden = !hay || !modoLista;
+}
+
+function actualizarEntrada() {
+    pintarNotas();
+    renderFoco();
+    pintarNavPuntos();
+}
+
+// ---------- Modo "una canción cada vez" ----------
+function crearBotonesFoco() {
+    for (let v = 0; v <= 10; v++) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'nota-btn';
+        btn.dataset.v = v;
+        btn.textContent = v;
+        btn.setAttribute('aria-pressed', 'false');
+        focoNotas.appendChild(btn);
+    }
+}
+
+function renderFoco() {
+    const n = titulosActuales.length;
+    if (n === 0) return;
+    const i = indiceActual;
+
+    focoNum.textContent = `Track ${i + 1} of ${n}`;
+    focoTitulo.textContent = titulosActuales[i];
+
+    focoNotas.querySelectorAll('.nota-btn').forEach(btn => {
+        const activo = notas[i] === Number(btn.dataset.v);
+        btn.classList.toggle('sel', activo);
+        btn.setAttribute('aria-pressed', String(activo));
+        btn.setAttribute('aria-label', `${btn.dataset.v} for ${titulosActuales[i]}`);
+    });
+
+    const ultima = i === n - 1;
+    btnAtras.disabled = i === 0;
+    if (ultima && todasPuntuadas()) {
+        btnSiguiente.textContent = 'See plot ↓';
+        btnSiguiente.disabled = false;
+    } else {
+        btnSiguiente.textContent = 'Next →';
+        btnSiguiente.disabled = ultima;
+    }
+}
+
+function construirNavPuntos() {
+    navPuntos.innerHTML = '';
+    titulosActuales.forEach((t, i) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'punto';
+        b.dataset.i = i;
+        b.textContent = i + 1;
+        b.setAttribute('aria-label', `Go to track ${i + 1}: ${t}`);
+        navPuntos.appendChild(b);
+    });
+}
+
+function pintarNavPuntos() {
+    Array.from(navPuntos.children).forEach((b, i) => {
+        b.classList.toggle('hecho', notas[i] !== null && notas[i] !== undefined);
+        b.classList.toggle('actual', i === indiceActual);
+    });
+}
+
+function irA(i) {
+    const n = titulosActuales.length;
+    if (n === 0) return;
+    clearTimeout(timerAvance);
+    indiceActual = Math.max(0, Math.min(n - 1, i));
+    actualizarEntrada();
+}
+
+// Tras puntuar: pasa a la siguiente canción; si era la última, a la primera sin puntuar
+function siguienteDestino(i) {
+    if (i < titulosActuales.length - 1) return i + 1;
+    return notas.findIndex(v => v === null);
+}
+
+focoNotas.addEventListener('click', (e) => {
+    const btn = e.target.closest('.nota-btn');
+    if (!btn) return;
+
+    const i = indiceActual;
+    const v = Number(btn.dataset.v);
+    clearTimeout(timerAvance);
+    mostrarAviso('');
+
+    if (notas[i] === v) {
+        notas[i] = null; // tocar la misma nota la quita
+    } else {
+        notas[i] = v;
+        const destino = siguienteDestino(i);
+        if (destino !== -1) {
+            // pequeña pausa para que se vea la nota seleccionada antes de avanzar
+            timerAvance = setTimeout(() => { if (indiceActual === i) irA(destino); }, 280);
+        }
+    }
+    refrescarPreview();
+});
+
+btnAtras.addEventListener('click', () => irA(indiceActual - 1));
+
+btnSiguiente.addEventListener('click', () => {
+    const ultima = indiceActual === titulosActuales.length - 1;
+    if (ultima && todasPuntuadas()) {
+        document.getElementById('paso-preview').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+        irA(indiceActual + 1);
+    }
+});
+
+navPuntos.addEventListener('click', (e) => {
+    const b = e.target.closest('.punto');
+    if (b) irA(Number(b.dataset.i));
+});
+
+// Cambiar entre "One by one" y "Full list"
+modos.addEventListener('click', (e) => {
+    const btn = e.target.closest('.seg');
+    if (!btn) return;
+    modoLista = btn.dataset.modo === 'lista';
+    modos.querySelectorAll('.seg').forEach(s => s.classList.toggle('sel', s === btn));
+    actualizarVistas();
+});
+
+// ---------- Modo lista completa ----------
 function crearFilaCancion(titulo, index) {
     const item = document.createElement('div');
     item.className = 'cancion-item';
@@ -348,19 +601,22 @@ listaCanciones.addEventListener('click', (e) => {
     const i = Number(btn.dataset.i);
     const v = Number(btn.dataset.v);
     notas[i] = notas[i] === v ? null : v;
+    indiceActual = i; // si vuelve al modo "una cada vez", estará en esta canción
 
     mostrarAviso('');
-    pintarNotas();
     refrescarPreview();
 });
 
 // Borrar todas las notas
 btnBorrar.addEventListener('click', () => {
+    clearTimeout(timerAvance);
     notas = notas.map(() => null);
+    indiceActual = 0;
     mostrarAviso('');
-    pintarNotas();
     refrescarPreview();
 });
+
+crearBotonesFoco();
 
 // ======================================================
 // COLOR DE ACENTO
@@ -391,7 +647,7 @@ document.getElementById('formatos').addEventListener('click', (e) => {
     const btn = e.target.closest('.seg');
     if (!btn) return;
 
-    document.querySelectorAll('.seg').forEach(s => s.classList.toggle('sel', s === btn));
+    document.querySelectorAll('#formatos .seg').forEach(s => s.classList.toggle('sel', s === btn));
     card.classList.toggle('fmt-square', btn.dataset.fmt === 'square');
     card.classList.toggle('fmt-story', btn.dataset.fmt === 'story');
 
@@ -479,15 +735,18 @@ async function buscarAlbumes(idArtista) {
     const miPeticion = ++peticionAlbum;
 
     // Reset de la interfaz
+    clearTimeout(timerAvance);
     selectAlbumes.disabled = true;
     selectAlbumes.innerHTML = '<option value="">Loading albums...</option>';
-    listaCanciones.innerHTML =
-        '<p style="text-align:center;color:var(--muted);font-size:16px;margin:0;">Select an album to generate the tracklist.</p>';
+    listaCanciones.innerHTML = '';
+    navPuntos.innerHTML = '';
     viewAlbum.textContent = "Your Album";
     titulosActuales = [];
     notas = [];
+    indiceActual = 0;
     resetPortada();
     mostrarAviso('');
+    mensajeCanciones('Select an album to generate the tracklist.');
     refrescarPreview();
 
     try {
@@ -560,12 +819,16 @@ selectAlbumes.addEventListener('change', async () => {
 
     const opcion = selectAlbumes.options[selectAlbumes.selectedIndex];
     viewAlbum.textContent = opcion.dataset.title || opcion.text;
+
+    clearTimeout(timerAvance);
     titulosActuales = [];
     notas = [];
+    indiceActual = 0;
+    listaCanciones.innerHTML = '';
+    navPuntos.innerHTML = '';
     mostrarAviso('');
+    mensajeCanciones('Loading tracks...');
     refrescarPreview();
-    listaCanciones.innerHTML =
-        '<p style="text-align:center;color:var(--muted);font-size:16px;margin:0;">Loading tracks...</p>';
 
     cargarPortada(idGrupo);
 
@@ -587,26 +850,25 @@ selectAlbumes.addEventListener('change', async () => {
         // Unimos todos los discos del release
         const tracks = (release?.media || []).flatMap(m => m.tracks || []);
 
-        listaCanciones.innerHTML = '';
-
         if (tracks.length === 0) {
-            listaCanciones.innerHTML =
-                '<p style="text-align:center;color:var(--muted);margin:0;">No tracks found for this album.</p>';
+            mensajeCanciones('No tracks found for this album.');
             return;
         }
 
         titulosActuales = tracks.map(t => t.title);
         notas = titulosActuales.map(() => null);
+        indiceActual = 0;
 
         tracks.forEach((track, index) => {
             listaCanciones.appendChild(crearFilaCancion(track.title, index));
         });
+        construirNavPuntos();
+        actualizarVistas();
 
         refrescarPreview(); // los botones siguen desactivados hasta puntuar todo
     } catch (err) {
         console.error("Error cargando canciones:", err);
-        listaCanciones.innerHTML =
-            '<p style="text-align:center;color:var(--muted);margin:0;">Error loading tracks. Please try again.</p>';
+        mensajeCanciones('Error loading tracks. Please try again.');
     }
 });
 
