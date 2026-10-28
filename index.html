@@ -98,6 +98,37 @@
       letter-spacing: .05em;
     }
 
+    /* Álbum elegido: portada + título para confirmar que es el correcto */
+    .album-elegido {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 12px;
+      border: 2px solid var(--line);
+      border-color: color-mix(in srgb, var(--c) 45%, var(--line));
+      border-radius: 14px;
+      background: #fff;
+    }
+    .album-elegido img {
+      width: 76px;
+      height: 76px;
+      flex: none;
+      object-fit: cover;
+      border-radius: 10px;
+      border: 2px solid var(--line);
+      background: var(--line);
+    }
+    .album-elegido > div { min-width: 0; }
+    .ae-titulo {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 600;
+      font-size: 20px;
+      line-height: 1.2;
+      text-transform: uppercase;
+      overflow-wrap: anywhere;
+    }
+    .ae-sub { margin: 2px 0 0; font-size: 15px; font-weight: 700; color: var(--muted); }
+
     .msg {
       display: flex;
       align-items: center;
@@ -204,8 +235,19 @@
       justify-content: center;
       overflow-wrap: anywhere;
     }
-    .foco-notas { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
-    .foco-notas .nota-btn { height: 58px; font-size: 24px; border-radius: 14px; }
+    .foco-notas {
+      --g: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center; /* la fila de abajo (6-10) queda centrada */
+      gap: var(--g);
+    }
+    .foco-notas .nota-btn {
+      width: calc((100% - 5 * var(--g)) / 6);
+      height: 58px;
+      font-size: 24px;
+      border-radius: 14px;
+    }
     .foco-hint { margin: 12px 0 0; font-size: 14px; color: var(--muted); }
     .foco-nav { display: flex; gap: 12px; margin-top: 16px; }
 
@@ -240,7 +282,8 @@
     }
     .opcion-label:not(:first-of-type) { margin-top: 20px; }
 
-    .swatches { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+    .swatches { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; }
+    .swatch-extra { display: flex; justify-content: center; margin-top: 16px; }
     .swatch {
       width: 42px;
       height: 42px;
@@ -473,8 +516,10 @@
     @media (max-width: 480px) {
       body { padding: 20px 12px; }
       .panel { padding: 18px; }
-      .notas { grid-template-columns: repeat(6, 1fr); }
-      .foco-notas { gap: 8px; }
+      /* En móvil, la lista completa también va en dos filas centradas (0-5 y 6-10) */
+      .notas { display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; }
+      .notas .nota-btn { width: calc((100% - 25px) / 6); }
+      .foco-notas { --g: 8px; }
     }
   </style>
 </head>
@@ -511,6 +556,14 @@
         <select id="albumes" disabled>
           <option value="">-- Choose an artist first --</option>
         </select>
+
+        <div class="album-elegido" id="album-elegido" hidden>
+          <img id="cover-elegido" alt="">
+          <div>
+            <div class="ae-titulo" id="ae-titulo"></div>
+            <p class="ae-sub" id="ae-sub"></p>
+          </div>
+        </div>
 
         <p class="estado" id="estado" hidden role="status">
           <span class="spinner" aria-hidden="true"></span>
@@ -560,10 +613,16 @@
         <button type="button" class="swatch sel" data-color="#f28c9f" style="background:#f28c9f" aria-label="Rose"></button>
         <button type="button" class="swatch" data-color="#ffad80" style="background:#ffad80" aria-label="Peach"></button>
         <button type="button" class="swatch" data-color="#f2cc5c" style="background:#f2cc5c" aria-label="Butter"></button>
+        <button type="button" class="swatch" data-color="#bddb6a" style="background:#bddb6a" aria-label="Lime"></button>
         <button type="button" class="swatch" data-color="#7dd3a8" style="background:#7dd3a8" aria-label="Mint"></button>
+        <button type="button" class="swatch" data-color="#6fd0d6" style="background:#6fd0d6" aria-label="Aqua"></button>
         <button type="button" class="swatch" data-color="#7ab6f7" style="background:#7ab6f7" aria-label="Sky"></button>
         <button type="button" class="swatch" data-color="#b69cf5" style="background:#b69cf5" aria-label="Lavender"></button>
-        <button type="button" class="chip" id="btn-sorpresa">Surprise me</button>
+        <button type="button" class="swatch" data-color="#d99af0" style="background:#d99af0" aria-label="Orchid"></button>
+        <button type="button" class="swatch" data-color="#f59ccf" style="background:#f59ccf" aria-label="Pink"></button>
+      </div>
+      <div class="swatch-extra">
+        <button type="button" class="chip" id="btn-random">Random</button>
       </div>
 
       <div class="opcion-label">Image format</div>
@@ -620,6 +679,6 @@
   </main>
 </div>
 
-<script src="app.js?v=6"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>
