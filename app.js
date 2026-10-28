@@ -75,12 +75,17 @@ document.addEventListener('click', (e) => {
 // ======================================================
 // UTILIDADES
 // ======================================================
-// Petición con tiempo máximo y reintentos automáticos si MusicBrainz está saturado (503/429)
-async function fetchJSON(url, intentos = 3) {
+// Petición con tiempo máximo y reintentos automáticos si MusicBrainz está saturado (503/429).
+// Opciones: intentos, timeoutMs y signal (para cancelarla desde fuera: una cancelación no se reintenta).
+async function fetchJSON(url, { intentos = 3, timeoutMs = 12000, signal } = {}) {
     let ultimoError;
     for (let k = 0; k < intentos; k++) {
+        if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+
         const ctrl = new AbortController();
-        const timeout = setTimeout(() => ctrl.abort(), 12000);
+        const alCancelar = () => ctrl.abort();
+        signal?.addEventListener('abort', alCancelar, { once: true });
+        const timeout = setTimeout(() => ctrl.abort(), timeoutMs);
         let fatal = false;
         try {
             const res = await fetch(url, { signal: ctrl.signal });
@@ -91,10 +96,11 @@ async function fetchJSON(url, intentos = 3) {
                 throw ultimoError;
             }
         } catch (err) {
-            if (fatal) throw err;
+            if (fatal || signal?.aborted) throw err; // error no recuperable o cancelada a propósito
             ultimoError = err; // tiempo agotado o fallo de red: se reintenta
         } finally {
             clearTimeout(timeout);
+            signal?.removeEventListener('abort', alCancelar);
         }
         if (k < intentos - 1) await new Promise(r => setTimeout(r, 1000 * (k + 1)));
     }
@@ -678,6 +684,23 @@ document.getElementById('formatos').addEventListener('click', (e) => {
 // ======================================================
 // 1. AUTOCOMPLETADO DE ARTISTAS
 // ======================================================
+// Artistas "de propósito especial" de MusicBrainz (recopilatorios, desconocidos...):
+// no tienen álbumes de estudio, así que se ocultan. Se filtra por nombre exacto.
+const ARTISTAS_ESPECIALES = new Set([
+    "various artists", "[unknown]", "[anonymous]", "[no artist]",
+    "[dialogue]", "[traditional]", "[data]"
+]);
+const MAX_ARTISTAS = 8;
+
+function filtrarArtistas(lista) {
+    return lista
+        .filter(a => !ARTISTAS_ESPECIALES.has((a.name || '').trim().toLowerCase()))
+        .slice(0, MAX_ARTISTAS);
+}
+
+const cacheArtistas = new Map(); // búsqueda -> artistas ya filtrados (repetir una búsqueda es instantáneo)
+let controlBusqueda = null;      // para cancelar la petición anterior al seguir escribiendo
+
 function mostrarMensajeDropdown(texto) {
     dropdownArtistas.innerHTML = '';
     const msg = document.createElement('div');
@@ -688,9 +711,47 @@ function mostrarMensajeDropdown(texto) {
     dropdownArtistas.style.display = 'block';
 }
 
-inputArtista.addEventListener('input', () => {
+function cancelarBusquedaArtistas() {
     clearTimeout(timerBusqueda);
+    controlBusqueda?.abort();
     ++peticionArtista; // invalida cualquier respuesta anterior todavía en vuelo
+}
+
+function pintarArtistas(artistas) {
+    if (artistas.length === 0) {
+        mostrarMensajeDropdown('No artists found');
+        return;
+    }
+
+    dropdownArtistas.innerHTML = '';
+    artistas.forEach(art => {
+        const item = document.createElement('div');
+        item.textContent = art.disambiguation
+            ? `${art.name} (${art.disambiguation})`
+            : art.name;
+        item.style.cssText =
+            "padding:12px 16px;cursor:pointer;border-bottom:1px solid var(--line);" +
+            "font-size:16px;color:var(--ink);font-family:'Nunito',sans-serif;";
+
+        item.addEventListener('mouseover', () => item.style.background = 'var(--bg)');
+        item.addEventListener('mouseout', () => item.style.background = 'transparent');
+
+        item.addEventListener('click', () => {
+            cancelarBusquedaArtistas(); // por si había una petición en vuelo
+            inputArtista.value = art.name;
+            viewArtista.textContent = art.name;
+            dropdownArtistas.style.display = 'none';
+            buscarAlbumes(art.id);
+        });
+
+        dropdownArtistas.appendChild(item);
+    });
+
+    dropdownArtistas.style.display = 'block';
+}
+
+inputArtista.addEventListener('input', () => {
+    cancelarBusquedaArtistas();
 
     const busqueda = inputArtista.value.trim();
     if (busqueda.length < 2) {
@@ -698,51 +759,36 @@ inputArtista.addEventListener('input', () => {
         return;
     }
 
+    // Si ya se buscó antes, se muestra al instante
+    const clave = busqueda.toLowerCase();
+    if (cacheArtistas.has(clave)) {
+        pintarArtistas(cacheArtistas.get(clave));
+        return;
+    }
+
     mostrarMensajeDropdown('Searching…');
 
     timerBusqueda = setTimeout(async () => {
         const miPeticion = peticionArtista;
-        const url = `${MB_BASE}/artist?query=${encodeURIComponent(busqueda)}&limit=8&fmt=json`;
+        controlBusqueda = new AbortController();
+        const { signal } = controlBusqueda;
+
+        // Se piden 10 para compensar los artistas especiales que se descartan
+        const url = `${MB_BASE}/artist?query=${encodeURIComponent(busqueda)}&limit=10&fmt=json`;
 
         try {
-            const data = await fetchJSON(url);
+            // Sin reintentos largos: si falla, se avisa enseguida y la siguiente tecla lanza otra búsqueda
+            const data = await fetchJSON(url, { intentos: 1, timeoutMs: 8000, signal });
             if (miPeticion !== peticionArtista) return; // llegó una respuesta más nueva
 
-            const artistas = data.artists || [];
-
-            if (artistas.length === 0) {
-                mostrarMensajeDropdown('No artists found');
-                return;
-            }
-
-            dropdownArtistas.innerHTML = '';
-            artistas.forEach(art => {
-                const item = document.createElement('div');
-                item.textContent = art.disambiguation
-                    ? `${art.name} (${art.disambiguation})`
-                    : art.name;
-                item.style.cssText =
-                    "padding:12px 16px;cursor:pointer;border-bottom:1px solid var(--line);" +
-                    "font-size:16px;color:var(--ink);font-family:'Nunito',sans-serif;";
-
-                item.addEventListener('mouseover', () => item.style.background = 'var(--bg)');
-                item.addEventListener('mouseout', () => item.style.background = 'transparent');
-
-                item.addEventListener('click', () => {
-                    inputArtista.value = art.name;
-                    viewArtista.textContent = art.name;
-                    dropdownArtistas.style.display = 'none';
-                    buscarAlbumes(art.id);
-                });
-
-                dropdownArtistas.appendChild(item);
-            });
-
-            dropdownArtistas.style.display = 'block';
+            const artistas = filtrarArtistas(data.artists || []);
+            cacheArtistas.set(clave, artistas);
+            pintarArtistas(artistas);
         } catch (err) {
+            if (signal.aborted) return; // cancelada porque el usuario siguió escribiendo
             console.error("Error buscando artistas:", err);
             if (miPeticion === peticionArtista) {
-                mostrarMensajeDropdown("Couldn't reach MusicBrainz. Try again in a moment.");
+                mostrarMensajeDropdown("Couldn't reach MusicBrainz. Keep typing to try again.");
             }
         }
     }, 400);
