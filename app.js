@@ -40,7 +40,6 @@ const listaCanciones = document.getElementById('lista-canciones');
 const msgCanciones = document.getElementById('msg-canciones');
 const modos = document.getElementById('modos');
 const vistaUno = document.getElementById('vista-uno');
-const navPuntos = document.getElementById('nav-puntos');
 const focoNum = document.getElementById('foco-num');
 const focoTitulo = document.getElementById('foco-titulo');
 const focoNotas = document.getElementById('foco-notas');
@@ -59,6 +58,8 @@ const progresoFill = document.getElementById('progreso-fill');
 const progresoTexto = document.getElementById('progreso-texto');
 const contador = document.getElementById('contador');
 const aviso = document.getElementById('aviso');
+const estado = document.getElementById('estado');
+const estadoTexto = document.getElementById('estado-texto');
 
 // Marca de agua con el enlace completo
 document.getElementById('marca-agua').textContent = `MADE AT: ${SITE_URL}`;
@@ -73,10 +74,39 @@ document.addEventListener('click', (e) => {
 // ======================================================
 // UTILIDADES
 // ======================================================
-async function fetchJSON(url) {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status} en ${url}`);
-    return res.json();
+// Petición con tiempo máximo y reintentos automáticos si MusicBrainz está saturado (503/429)
+async function fetchJSON(url, intentos = 3) {
+    let ultimoError;
+    for (let k = 0; k < intentos; k++) {
+        const ctrl = new AbortController();
+        const timeout = setTimeout(() => ctrl.abort(), 12000);
+        let fatal = false;
+        try {
+            const res = await fetch(url, { signal: ctrl.signal });
+            if (res.ok) return await res.json();
+            ultimoError = new Error(`HTTP ${res.status} en ${url}`);
+            if (res.status !== 503 && res.status !== 429) {
+                fatal = true;
+                throw ultimoError;
+            }
+        } catch (err) {
+            if (fatal) throw err;
+            ultimoError = err; // tiempo agotado o fallo de red: se reintenta
+        } finally {
+            clearTimeout(timeout);
+        }
+        if (k < intentos - 1) await new Promise(r => setTimeout(r, 1000 * (k + 1)));
+    }
+    throw ultimoError;
+}
+
+function mostrarEstado(texto) {
+    estadoTexto.textContent = texto;
+    estado.hidden = false;
+}
+
+function ocultarEstado() {
+    estado.hidden = true;
 }
 
 function recortar(texto, max) {
@@ -413,8 +443,23 @@ if (document.fonts && document.fonts.ready) {
 // ======================================================
 // ENTRADA DE NOTAS: vistas y estado
 // ======================================================
-function mensajeCanciones(texto) {
-    msgCanciones.textContent = texto;
+function mensajeCanciones(texto, cargando = false, reintentar = null) {
+    msgCanciones.innerHTML = '';
+    if (cargando) {
+        const sp = document.createElement('span');
+        sp.className = 'spinner';
+        sp.setAttribute('aria-hidden', 'true');
+        msgCanciones.appendChild(sp);
+    }
+    msgCanciones.appendChild(document.createTextNode(texto));
+    if (reintentar) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'chip';
+        b.textContent = 'Try again';
+        b.addEventListener('click', reintentar);
+        msgCanciones.appendChild(b);
+    }
     actualizarVistas();
 }
 
@@ -429,7 +474,6 @@ function actualizarVistas() {
 function actualizarEntrada() {
     pintarNotas();
     renderFoco();
-    pintarNavPuntos();
 }
 
 // ---------- Modo "una canción cada vez" ----------
@@ -469,26 +513,6 @@ function renderFoco() {
         btnSiguiente.textContent = 'Next →';
         btnSiguiente.disabled = ultima;
     }
-}
-
-function construirNavPuntos() {
-    navPuntos.innerHTML = '';
-    titulosActuales.forEach((t, i) => {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'punto';
-        b.dataset.i = i;
-        b.textContent = i + 1;
-        b.setAttribute('aria-label', `Go to track ${i + 1}: ${t}`);
-        navPuntos.appendChild(b);
-    });
-}
-
-function pintarNavPuntos() {
-    Array.from(navPuntos.children).forEach((b, i) => {
-        b.classList.toggle('hecho', notas[i] !== null && notas[i] !== undefined);
-        b.classList.toggle('actual', i === indiceActual);
-    });
 }
 
 function irA(i) {
@@ -536,11 +560,6 @@ btnSiguiente.addEventListener('click', () => {
     } else {
         irA(indiceActual + 1);
     }
-});
-
-navPuntos.addEventListener('click', (e) => {
-    const b = e.target.closest('.punto');
-    if (b) irA(Number(b.dataset.i));
 });
 
 // Cambiar entre "One by one" y "Full list"
@@ -739,7 +758,6 @@ async function buscarAlbumes(idArtista) {
     selectAlbumes.disabled = true;
     selectAlbumes.innerHTML = '<option value="">Loading albums...</option>';
     listaCanciones.innerHTML = '';
-    navPuntos.innerHTML = '';
     viewAlbum.textContent = "Your Album";
     titulosActuales = [];
     notas = [];
@@ -747,6 +765,7 @@ async function buscarAlbumes(idArtista) {
     resetPortada();
     mostrarAviso('');
     mensajeCanciones('Select an album to generate the tracklist.');
+    mostrarEstado('Loading albums…');
     refrescarPreview();
 
     try {
@@ -781,6 +800,8 @@ async function buscarAlbumes(idArtista) {
     } catch (err) {
         console.error("Error cargando álbumes:", err);
         selectAlbumes.innerHTML = '<option value="">Error loading albums (try again)</option>';
+    } finally {
+        if (miPeticion === peticionAlbum) ocultarEstado();
     }
 }
 
@@ -813,21 +834,55 @@ function cargarPortada(idReleaseGroup) {
 // ======================================================
 // 4. TRACKLIST DEL ÁLBUM
 // ======================================================
-selectAlbumes.addEventListener('change', async () => {
-    const idGrupo = selectAlbumes.value;
-    if (!idGrupo) return;
+const cacheTracks = new Map(); // idGrupo -> títulos (evita repetir peticiones)
 
-    const opcion = selectAlbumes.options[selectAlbumes.selectedIndex];
-    viewAlbum.textContent = opcion.dataset.title || opcion.text;
+// Dos peticiones ligeras en lugar de una pesada:
+//  1) ediciones del álbum (sin canciones) -> elegimos la edición original
+//  2) consulta directa de esa edición con sus canciones
+async function obtenerTracklist(idGrupo) {
+    if (cacheTracks.has(idGrupo)) return cacheTracks.get(idGrupo);
 
+    let data = await fetchJSON(
+        `${MB_BASE}/release?release-group=${idGrupo}&status=official&inc=media&limit=50&fmt=json`
+    );
+    let releases = data.releases || [];
+    if (releases.length === 0) {
+        data = await fetchJSON(
+            `${MB_BASE}/release?release-group=${idGrupo}&inc=media&limit=50&fmt=json`
+        );
+        releases = data.releases || [];
+    }
+    if (releases.length === 0) return [];
+
+    // La más antigua (edición original); a igualdad de fecha, la de menos pistas
+    const numPistas = r => (r.media || []).reduce((s, m) => s + (m["track-count"] || 0), 0) || 999;
+    releases.sort((a, b) =>
+        (a.date || "9999").localeCompare(b.date || "9999") || numPistas(a) - numPistas(b));
+
+    const release = await fetchJSON(`${MB_BASE}/release/${releases[0].id}?inc=recordings&fmt=json`);
+    const titulos = (release.media || []).flatMap(m => m.tracks || []).map(t => t.title);
+
+    if (titulos.length > 0) cacheTracks.set(idGrupo, titulos);
+    return titulos;
+}
+
+// Si el panel de puntuación queda fuera de pantalla (móvil), lo acerca
+function llevarAPasoPuntuar() {
+    const el = document.getElementById('paso-puntuar');
+    if (el.getBoundingClientRect().top > window.innerHeight * 0.6) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
+async function cargarCanciones(idGrupo) {
     clearTimeout(timerAvance);
     titulosActuales = [];
     notas = [];
     indiceActual = 0;
     listaCanciones.innerHTML = '';
-    navPuntos.innerHTML = '';
     mostrarAviso('');
-    mensajeCanciones('Loading tracks...');
+    mensajeCanciones('Loading tracks…', true);
+    mostrarEstado('Loading tracklist…');
     refrescarPreview();
 
     cargarPortada(idGrupo);
@@ -835,41 +890,42 @@ selectAlbumes.addEventListener('change', async () => {
     const miPeticion = ++peticionAlbum;
 
     try {
-        // Buscamos primero una edición oficial; si no hay, cualquiera
-        let data = await fetchJSON(
-            `${MB_BASE}/release?release-group=${idGrupo}&status=official&inc=recordings&limit=1&fmt=json`
-        );
-        if (!data.releases || data.releases.length === 0) {
-            data = await fetchJSON(
-                `${MB_BASE}/release?release-group=${idGrupo}&inc=recordings&limit=1&fmt=json`
-            );
-        }
+        const titulos = await obtenerTracklist(idGrupo);
         if (miPeticion !== peticionAlbum) return;
 
-        const release = data.releases?.[0];
-        // Unimos todos los discos del release
-        const tracks = (release?.media || []).flatMap(m => m.tracks || []);
-
-        if (tracks.length === 0) {
+        if (titulos.length === 0) {
             mensajeCanciones('No tracks found for this album.');
             return;
         }
 
-        titulosActuales = tracks.map(t => t.title);
-        notas = titulosActuales.map(() => null);
+        titulosActuales = titulos;
+        notas = titulos.map(() => null);
         indiceActual = 0;
 
-        tracks.forEach((track, index) => {
-            listaCanciones.appendChild(crearFilaCancion(track.title, index));
+        titulos.forEach((titulo, index) => {
+            listaCanciones.appendChild(crearFilaCancion(titulo, index));
         });
-        construirNavPuntos();
         actualizarVistas();
-
         refrescarPreview(); // los botones siguen desactivados hasta puntuar todo
+        llevarAPasoPuntuar();
     } catch (err) {
         console.error("Error cargando canciones:", err);
-        mensajeCanciones('Error loading tracks. Please try again.');
+        if (miPeticion === peticionAlbum) {
+            mensajeCanciones("Couldn't load the tracks. MusicBrainz may be busy.", false,
+                () => cargarCanciones(idGrupo));
+        }
+    } finally {
+        if (miPeticion === peticionAlbum) ocultarEstado();
     }
+}
+
+selectAlbumes.addEventListener('change', () => {
+    const idGrupo = selectAlbumes.value;
+    if (!idGrupo) return;
+
+    const opcion = selectAlbumes.options[selectAlbumes.selectedIndex];
+    viewAlbum.textContent = opcion.dataset.title || opcion.text;
+    cargarCanciones(idGrupo);
 });
 
 // ======================================================
