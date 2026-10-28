@@ -13,8 +13,8 @@
 
   <style>
     :root {
-      --c: #e63946;          /* Accent Color (cambia con el selector) */
-      --on-c: #fff;          /* Text on accent color */
+      --c: #f28c9f;          /* Accent Color (pastel rose, cambia con el selector) */
+      --on-c: #1d1a17;       /* Text on accent color (oscuro, porque el acento es pastel) */
       --ink: #1d1a17;        /* Primary text color */
       --bg: #fbf6ef;         /* Page background */
       --card: #fff;          /* Card background */
@@ -46,7 +46,13 @@
       line-height: 1.1;
       text-transform: uppercase;
     }
-    header h1 .highlight { color: var(--c); }
+    /* "Plot" como rotulador: fondo pastel + texto oscuro (legible con cualquier color) */
+    header h1 .highlight {
+      background: var(--c);
+      color: var(--on-c);
+      padding: 0 .12em;
+      border-radius: .18em;
+    }
     header p { margin: 8px 0 0; color: var(--muted); font-size: 16px; }
 
     .panel {
@@ -84,6 +90,8 @@
       letter-spacing: .05em;
     }
 
+    .msg { text-align: center; color: var(--muted); font-size: 16px; margin: 0; }
+
     .buscador-group { display: flex; flex-direction: column; gap: 12px; }
     input[type=text], select {
       font: inherit;
@@ -97,24 +105,7 @@
     }
     input[type=text]:focus, select:focus { border-color: var(--ink); outline: none; }
 
-    /* ---------- Tracklist: botones de nota ---------- */
-    .cancion-item {
-      padding: 14px 0;
-      border-top: 2px dashed var(--line);
-    }
-    .cancion-item:first-of-type { border-top: 0; padding-top: 0; }
-    .cancion-nombre {
-      display: block;
-      font-size: 17px;
-      font-weight: 700;
-      color: var(--ink);
-      margin-bottom: 8px;
-    }
-    .notas {
-      display: grid;
-      grid-template-columns: repeat(11, 1fr);
-      gap: 5px;
-    }
+    /* ---------- Botones de nota (compartidos) ---------- */
     .nota-btn {
       font-family: 'Oswald', sans-serif;
       font-size: 17px;
@@ -139,10 +130,77 @@
     .swatch:focus-visible,
     .seg:focus-visible,
     .chip:focus-visible,
+    .punto:focus-visible,
     .sec-button:focus-visible,
     .big-button:focus-visible {
       outline: 3px solid var(--ink);
       outline-offset: 2px;
+    }
+
+    /* ---------- Modo "una canción cada vez" ---------- */
+    .modos { margin-bottom: 18px; }
+    .seg-mini { padding: 8px 10px; font-size: 15px; }
+
+    #nav-puntos { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
+    .punto {
+      width: 30px;
+      height: 30px;
+      padding: 0;
+      border-radius: 50%;
+      border: 2px solid var(--line);
+      background: #fff;
+      color: var(--muted);
+      font-family: 'Oswald', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .punto.hecho { background: var(--c); color: var(--on-c); border-color: var(--c); }
+    .punto.actual { border-color: var(--ink); color: var(--ink); box-shadow: 0 0 0 2px var(--ink); }
+
+    .foco { text-align: center; padding: 6px 0 2px; }
+    .foco-num {
+      font-family: 'Oswald', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .foco-titulo {
+      font-family: 'Oswald', sans-serif;
+      font-weight: 600;
+      font-size: clamp(22px, 5.5vw, 30px);
+      line-height: 1.2;
+      margin: 6px 0 18px;
+      min-height: 2.4em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow-wrap: anywhere;
+    }
+    .foco-notas { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+    .foco-notas .nota-btn { height: 58px; font-size: 24px; border-radius: 14px; }
+    .foco-hint { margin: 12px 0 0; font-size: 14px; color: var(--muted); }
+    .foco-nav { display: flex; gap: 12px; margin-top: 16px; }
+
+    /* ---------- Modo lista completa ---------- */
+    .cancion-item {
+      padding: 14px 0;
+      border-top: 2px dashed var(--line);
+    }
+    .cancion-item:first-of-type { border-top: 0; padding-top: 0; }
+    .cancion-nombre {
+      display: block;
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--ink);
+      margin-bottom: 8px;
+    }
+    .notas {
+      display: grid;
+      grid-template-columns: repeat(11, 1fr);
+      gap: 5px;
     }
 
     /* ---------- Personalización ---------- */
@@ -232,7 +290,12 @@
       margin-bottom: 14px;
     }
     .fmt-story .brand { font-size: 26px; margin-bottom: 18px; }
-    .brand span { color: var(--c); }
+    .brand span {
+      background: var(--c);
+      color: var(--on-c);
+      padding: 2px 6px 1px;
+      border-radius: 6px;
+    }
 
     .header-poster { border-bottom: 2px dashed var(--line); }
     .header-poster h3 {
@@ -356,7 +419,7 @@
       transition: transform 0.1s, box-shadow 0.1s;
     }
     .big-button:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 2px 0 var(--ink); }
-    .big-button:disabled { background: #ccc; box-shadow: none; border-color: #aaa; color: #fff; cursor: not-allowed; }
+    .big-button:disabled { background: #e4e0da; box-shadow: none; border-color: #bdb7ae; color: #8a8379; cursor: not-allowed; }
 
     .acciones-sec { display: flex; gap: 12px; margin-top: 16px; }
     .sec-button {
@@ -378,12 +441,13 @@
     .sec-button:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 2px 0 var(--ink); }
     .sec-button:disabled { color: #aaa; border-color: #ccc; box-shadow: none; cursor: not-allowed; }
 
-    .aviso { margin: 12px 0 0; text-align: center; font-size: 14px; font-weight: 700; color: var(--c); min-height: 1em; }
+    .aviso { margin: 12px 0 0; text-align: center; font-size: 14px; font-weight: 700; color: var(--ink); min-height: 1em; }
 
     @media (max-width: 480px) {
       body { padding: 20px 12px; }
       .panel { padding: 18px; }
       .notas { grid-template-columns: repeat(6, 1fr); }
+      .foco-notas { gap: 8px; }
     }
   </style>
 </head>
@@ -427,9 +491,33 @@
     <section class="panel">
       <div class="step">Step 2</div>
       <h2>Rate Each Track <span class="contador" id="contador"></span></h2>
-      <div id="lista-canciones">
-        <p style="text-align:center; color:var(--muted); font-size:16px; margin:0;">Select an album to generate the tracklist.</p>
+
+      <p class="msg" id="msg-canciones">Select an album to generate the tracklist.</p>
+
+      <div class="segmentado modos" id="modos" hidden>
+        <button type="button" class="seg seg-mini sel" data-modo="uno">One by one</button>
+        <button type="button" class="seg seg-mini" data-modo="lista">Full list</button>
       </div>
+
+      <!-- Vista: una canción cada vez -->
+      <div id="vista-uno" hidden>
+        <div id="nav-puntos" role="group" aria-label="Track navigation"></div>
+
+        <div class="foco">
+          <div class="foco-num" id="foco-num"></div>
+          <div class="foco-titulo" id="foco-titulo"></div>
+          <div class="foco-notas" id="foco-notas" role="group" aria-label="Rating"></div>
+          <p class="foco-hint">Tap a score and it jumps to the next track.</p>
+        </div>
+
+        <div class="foco-nav">
+          <button type="button" class="sec-button" id="btn-atras">← Back</button>
+          <button type="button" class="sec-button" id="btn-siguiente">Next →</button>
+        </div>
+      </div>
+
+      <!-- Vista: lista completa -->
+      <div id="lista-canciones" hidden></div>
     </section>
 
     <!-- Paso 3: personalizar -->
@@ -439,12 +527,12 @@
 
       <div class="opcion-label">Accent color</div>
       <div class="swatches" id="swatches">
-        <button type="button" class="swatch sel" data-color="#e63946" style="background:#e63946" aria-label="Red"></button>
-        <button type="button" class="swatch" data-color="#e8590c" style="background:#e8590c" aria-label="Orange"></button>
-        <button type="button" class="swatch" data-color="#2b9348" style="background:#2b9348" aria-label="Green"></button>
-        <button type="button" class="swatch" data-color="#2563eb" style="background:#2563eb" aria-label="Blue"></button>
-        <button type="button" class="swatch" data-color="#7c3aed" style="background:#7c3aed" aria-label="Purple"></button>
-        <button type="button" class="swatch" data-color="#d6336c" style="background:#d6336c" aria-label="Pink"></button>
+        <button type="button" class="swatch sel" data-color="#f28c9f" style="background:#f28c9f" aria-label="Rose"></button>
+        <button type="button" class="swatch" data-color="#ffad80" style="background:#ffad80" aria-label="Peach"></button>
+        <button type="button" class="swatch" data-color="#f2cc5c" style="background:#f2cc5c" aria-label="Butter"></button>
+        <button type="button" class="swatch" data-color="#7dd3a8" style="background:#7dd3a8" aria-label="Mint"></button>
+        <button type="button" class="swatch" data-color="#7ab6f7" style="background:#7ab6f7" aria-label="Sky"></button>
+        <button type="button" class="swatch" data-color="#b69cf5" style="background:#b69cf5" aria-label="Lavender"></button>
         <button type="button" class="chip" id="btn-sorpresa">Surprise me</button>
       </div>
 
@@ -456,7 +544,7 @@
     </section>
 
     <!-- Paso 4: preview (esto es lo que se descarga) -->
-    <section class="panel">
+    <section class="panel" id="paso-preview">
       <div class="step">Step 4</div>
       <h2>Your Rating</h2>
 
@@ -502,6 +590,6 @@
   </main>
 </div>
 
-<script src="app.js?v=4"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>
