@@ -9,9 +9,6 @@ const SITE_URL = "damogon.github.io/album-plot/";
 const CARD_W = 540;     // ancho fijo de la tarjeta (px de diseño)
 const EXPORT_W = 1080;  // ancho de la imagen exportada
 
-// Colores pastel disponibles (los mismos que los círculos del HTML)
-const COLORES_SORPRESA = ["#f28c9f", "#ffad80", "#f2cc5c", "#7dd3a8", "#7ab6f7", "#b69cf5"];
-
 // Placeholder embebido (SVG en data URI) para portadas que no existen
 const PLACEHOLDER_COVER =
   "data:image/svg+xml;utf8," +
@@ -60,6 +57,10 @@ const contador = document.getElementById('contador');
 const aviso = document.getElementById('aviso');
 const estado = document.getElementById('estado');
 const estadoTexto = document.getElementById('estado-texto');
+const albumElegido = document.getElementById('album-elegido');
+const coverElegido = document.getElementById('cover-elegido');
+const aeTitulo = document.getElementById('ae-titulo');
+const aeSub = document.getElementById('ae-sub');
 
 // Marca de agua con el enlace completo
 document.getElementById('marca-agua').textContent = `MADE AT: ${SITE_URL}`;
@@ -651,12 +652,12 @@ document.getElementById('swatches').addEventListener('click', (e) => {
     if (sw) aplicarColor(sw.dataset.color, sw);
 });
 
-document.getElementById('btn-sorpresa').addEventListener('click', () => {
+document.getElementById('btn-random').addEventListener('click', () => {
+    const swatches = Array.from(document.querySelectorAll('.swatch'));
     const actual = getComputedStyle(document.documentElement).getPropertyValue('--c').trim();
-    const opciones = COLORES_SORPRESA.filter(c => c !== actual);
+    const opciones = swatches.filter(s => s.dataset.color !== actual);
     const elegido = opciones[Math.floor(Math.random() * opciones.length)];
-    const sw = Array.from(document.querySelectorAll('.swatch')).find(s => s.dataset.color === elegido);
-    aplicarColor(elegido, sw);
+    aplicarColor(elegido.dataset.color, elegido);
 });
 
 // ======================================================
@@ -763,6 +764,7 @@ async function buscarAlbumes(idArtista) {
     notas = [];
     indiceActual = 0;
     resetPortada();
+    ocultarAlbumElegido();
     mostrarAviso('');
     mensajeCanciones('Select an album to generate the tracklist.');
     mostrarEstado('Loading albums…');
@@ -792,6 +794,7 @@ async function buscarAlbumes(idArtista) {
             const option = document.createElement('option');
             option.value = g.id;               // ID del release-group
             option.dataset.title = g.title;
+            option.dataset.year = year;
             option.textContent = year ? `${g.title} (${year})` : g.title;
             selectAlbumes.appendChild(option);
         });
@@ -829,6 +832,26 @@ function cargarPortada(idReleaseGroup) {
         coverArt.src = PLACEHOLDER_COVER;
     };
     coverArt.src = `${CAA_BASE}/release-group/${idReleaseGroup}/front-500`;
+}
+
+// Portada + título del álbum elegido en el paso 1, para confirmar que es el correcto
+function mostrarAlbumElegido(idGrupo, titulo, anio) {
+    aeTitulo.textContent = titulo;
+    aeSub.textContent = [viewArtista.textContent, anio].filter(Boolean).join(' · ');
+
+    coverElegido.crossOrigin = "anonymous";
+    coverElegido.onerror = () => {
+        coverElegido.onerror = null;
+        coverElegido.src = PLACEHOLDER_COVER;
+    };
+    coverElegido.src = `${CAA_BASE}/release-group/${idGrupo}/front-500`;
+    albumElegido.hidden = false;
+}
+
+function ocultarAlbumElegido() {
+    albumElegido.hidden = true;
+    coverElegido.onerror = null;
+    coverElegido.removeAttribute('src');
 }
 
 // ======================================================
@@ -924,7 +947,9 @@ selectAlbumes.addEventListener('change', () => {
     if (!idGrupo) return;
 
     const opcion = selectAlbumes.options[selectAlbumes.selectedIndex];
-    viewAlbum.textContent = opcion.dataset.title || opcion.text;
+    const titulo = opcion.dataset.title || opcion.text;
+    viewAlbum.textContent = titulo;
+    mostrarAlbumElegido(idGrupo, titulo, opcion.dataset.year);
     cargarCanciones(idGrupo);
 });
 
