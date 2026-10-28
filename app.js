@@ -930,7 +930,6 @@ async function cargarCanciones(idGrupo) {
         });
         actualizarVistas();
         refrescarPreview(); // los botones siguen desactivados hasta puntuar todo
-        llevarAPasoPuntuar();
     } catch (err) {
         console.error("Error cargando canciones:", err);
         if (miPeticion === peticionAlbum) {
@@ -951,6 +950,7 @@ selectAlbumes.addEventListener('change', () => {
     viewAlbum.textContent = titulo;
     mostrarAlbumElegido(idGrupo, titulo, opcion.dataset.year);
     cargarCanciones(idGrupo);
+    llevarAPasoPuntuar(); // en móvil, el paso 2 (con la portada) queda fuera de pantalla
 });
 
 // ======================================================
