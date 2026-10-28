@@ -119,6 +119,18 @@
       background: var(--line);
     }
     .album-elegido > div { min-width: 0; }
+
+    /* Dentro del paso 2: queda pegada arriba al hacer scroll (útil en la lista completa) */
+    #paso-puntuar .album-elegido {
+      position: sticky;
+      top: 8px;
+      z-index: 5;
+      margin-bottom: 16px;
+      padding: 10px;
+      box-shadow: 0 6px 16px rgba(29, 26, 23, .10);
+    }
+    #paso-puntuar .album-elegido img { width: 60px; height: 60px; }
+    #paso-puntuar .ae-titulo { font-size: 18px; }
     .ae-titulo {
       font-family: 'Oswald', sans-serif;
       font-weight: 600;
@@ -189,9 +201,10 @@
       cursor: pointer;
       transition: transform .08s;
     }
-    .nota-btn:hover {
-      border-color: var(--ink);
-      background: color-mix(in srgb, var(--c) 25%, #fff);
+    /* El hover solo en dispositivos con ratón y sin relleno, para que no parezca una nota seleccionada
+       (en móvil el hover se queda "pegado" tras tocar, y en escritorio el ratón queda sobre el mismo botón) */
+    @media (hover: hover) {
+      .nota-btn:hover { border-color: var(--ink); }
     }
     .nota-btn:active { transform: scale(.94); }
     .nota-btn.sel,
@@ -308,7 +321,9 @@
       color: var(--ink);
       cursor: pointer;
     }
-    .chip:hover { background: color-mix(in srgb, var(--c) 30%, #fff); }
+    @media (hover: hover) {
+      .chip:hover { background: color-mix(in srgb, var(--c) 30%, #fff); }
+    }
 
     .segmentado { display: flex; gap: 10px; }
     .seg {
@@ -507,7 +522,9 @@
       box-shadow: 0 4px 0 var(--ink);
       transition: transform 0.1s, box-shadow 0.1s;
     }
-    .sec-button:hover:not(:disabled) { background: color-mix(in srgb, var(--c) 30%, #fff); }
+    @media (hover: hover) {
+      .sec-button:hover:not(:disabled) { background: color-mix(in srgb, var(--c) 30%, #fff); }
+    }
     .sec-button:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 2px 0 var(--ink); }
     .sec-button:disabled { color: #aaa; border-color: #ccc; box-shadow: none; cursor: not-allowed; }
 
@@ -557,14 +574,6 @@
           <option value="">-- Choose an artist first --</option>
         </select>
 
-        <div class="album-elegido" id="album-elegido" hidden>
-          <img id="cover-elegido" alt="">
-          <div>
-            <div class="ae-titulo" id="ae-titulo"></div>
-            <p class="ae-sub" id="ae-sub"></p>
-          </div>
-        </div>
-
         <p class="estado" id="estado" hidden role="status">
           <span class="spinner" aria-hidden="true"></span>
           <span id="estado-texto"></span>
@@ -576,6 +585,15 @@
     <section class="panel" id="paso-puntuar">
       <div class="step">Step 2</div>
       <h2>Rate Each Track <span class="contador" id="contador"></span></h2>
+
+      <!-- Álbum elegido: se queda arriba mientras puntúas -->
+      <div class="album-elegido" id="album-elegido" hidden>
+        <img id="cover-elegido" alt="">
+        <div>
+          <div class="ae-titulo" id="ae-titulo"></div>
+          <p class="ae-sub" id="ae-sub"></p>
+        </div>
+      </div>
 
       <p class="msg" id="msg-canciones">Select an album to generate the tracklist.</p>
 
@@ -679,6 +697,6 @@
   </main>
 </div>
 
-<script src="app.js?v=7"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>
