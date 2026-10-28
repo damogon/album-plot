@@ -33,6 +33,8 @@
       font-size: 18px;
       line-height: 1.45;
       padding: 28px 16px;
+      /* el fondo se tiñe suavemente con el color elegido */
+      background: color-mix(in srgb, var(--c) 14%, var(--bg));
     }
 
     .wrap { max-width: 650px; margin: 0 auto; }
@@ -58,25 +60,31 @@
     .panel {
       background: var(--card);
       border: 2px solid var(--line);
+      border-color: color-mix(in srgb, var(--c) 45%, var(--line));
       border-radius: 22px;
       padding: 24px;
       margin-bottom: 20px;
     }
 
+    /* Etiqueta de paso como "pastilla" de color */
     .step {
+      display: inline-block;
       font-family: 'Oswald', sans-serif;
       font-weight: 600;
       font-size: 13px;
       letter-spacing: .1em;
       text-transform: uppercase;
-      color: var(--muted);
+      background: var(--c);
+      color: var(--on-c);
+      padding: 2px 12px;
+      border-radius: 999px;
     }
 
     h2 {
       font-family: 'Oswald', sans-serif;
       font-weight: 600;
       font-size: 24px;
-      margin: 2px 0 14px;
+      margin: 8px 0 14px;
       line-height: 1.2;
       display: flex;
       align-items: baseline;
@@ -90,7 +98,38 @@
       letter-spacing: .05em;
     }
 
-    .msg { text-align: center; color: var(--muted); font-size: 16px; margin: 0; }
+    .msg {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 16px;
+      margin: 0;
+    }
+
+    /* Indicadores de carga */
+    .spinner {
+      width: 18px;
+      height: 18px;
+      flex: none;
+      border: 3px solid var(--line);
+      border-top-color: var(--ink);
+      border-radius: 50%;
+      animation: girar .8s linear infinite;
+    }
+    @keyframes girar { to { transform: rotate(360deg); } }
+    .estado {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0;
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--muted);
+    }
 
     .buscador-group { display: flex; flex-direction: column; gap: 12px; }
     input[type=text], select {
@@ -103,7 +142,7 @@
       background: #fff;
       color: var(--ink);
     }
-    input[type=text]:focus, select:focus { border-color: var(--ink); outline: none; }
+    input[type=text]:focus, select:focus { border-color: var(--ink); box-shadow: 0 0 0 4px var(--c); outline: none; }
 
     /* ---------- Botones de nota (compartidos) ---------- */
     .nota-btn {
@@ -119,9 +158,13 @@
       cursor: pointer;
       transition: transform .08s;
     }
-    .nota-btn:hover { border-color: var(--ink); }
+    .nota-btn:hover {
+      border-color: var(--ink);
+      background: color-mix(in srgb, var(--c) 25%, #fff);
+    }
     .nota-btn:active { transform: scale(.94); }
-    .nota-btn.sel {
+    .nota-btn.sel,
+    .nota-btn.sel:hover {
       background: var(--c);
       color: var(--on-c);
       border-color: var(--ink);
@@ -130,7 +173,6 @@
     .swatch:focus-visible,
     .seg:focus-visible,
     .chip:focus-visible,
-    .punto:focus-visible,
     .sec-button:focus-visible,
     .big-button:focus-visible {
       outline: 3px solid var(--ink);
@@ -140,23 +182,6 @@
     /* ---------- Modo "una canción cada vez" ---------- */
     .modos { margin-bottom: 18px; }
     .seg-mini { padding: 8px 10px; font-size: 15px; }
-
-    #nav-puntos { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 18px; }
-    .punto {
-      width: 30px;
-      height: 30px;
-      padding: 0;
-      border-radius: 50%;
-      border: 2px solid var(--line);
-      background: #fff;
-      color: var(--muted);
-      font-family: 'Oswald', sans-serif;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    .punto.hecho { background: var(--c); color: var(--on-c); border-color: var(--c); }
-    .punto.actual { border-color: var(--ink); color: var(--ink); box-shadow: 0 0 0 2px var(--ink); }
 
     .foco { text-align: center; padding: 6px 0 2px; }
     .foco-num {
@@ -240,6 +265,7 @@
       color: var(--ink);
       cursor: pointer;
     }
+    .chip:hover { background: color-mix(in srgb, var(--c) 30%, #fff); }
 
     .segmentado { display: flex; gap: 10px; }
     .seg {
@@ -256,7 +282,7 @@
       color: var(--ink);
       cursor: pointer;
     }
-    .seg.sel { background: var(--ink); color: #fff; }
+    .seg.sel { background: var(--c); color: var(--on-c); box-shadow: 0 3px 0 var(--ink); }
 
     /* ---------- Preview (lo que se descarga) ---------- */
     /* La tarjeta tiene tamaño fijo (540 px) y se reduce con transform en pantallas pequeñas */
@@ -297,7 +323,7 @@
       border-radius: 6px;
     }
 
-    .header-poster { border-bottom: 2px dashed var(--line); }
+    .header-poster { border-bottom: 2px dashed var(--c); }
     .header-poster h3 {
       font-family: 'Oswald', sans-serif;
       margin: 0;
@@ -438,6 +464,7 @@
       box-shadow: 0 4px 0 var(--ink);
       transition: transform 0.1s, box-shadow 0.1s;
     }
+    .sec-button:hover:not(:disabled) { background: color-mix(in srgb, var(--c) 30%, #fff); }
     .sec-button:active:not(:disabled) { transform: translateY(2px); box-shadow: 0 2px 0 var(--ink); }
     .sec-button:disabled { color: #aaa; border-color: #ccc; box-shadow: none; cursor: not-allowed; }
 
@@ -484,11 +511,16 @@
         <select id="albumes" disabled>
           <option value="">-- Choose an artist first --</option>
         </select>
+
+        <p class="estado" id="estado" hidden role="status">
+          <span class="spinner" aria-hidden="true"></span>
+          <span id="estado-texto"></span>
+        </p>
       </div>
     </section>
 
     <!-- Paso 2: puntuar -->
-    <section class="panel">
+    <section class="panel" id="paso-puntuar">
       <div class="step">Step 2</div>
       <h2>Rate Each Track <span class="contador" id="contador"></span></h2>
 
@@ -501,8 +533,6 @@
 
       <!-- Vista: una canción cada vez -->
       <div id="vista-uno" hidden>
-        <div id="nav-puntos" role="group" aria-label="Track navigation"></div>
-
         <div class="foco">
           <div class="foco-num" id="foco-num"></div>
           <div class="foco-titulo" id="foco-titulo"></div>
@@ -590,6 +620,6 @@
   </main>
 </div>
 
-<script src="app.js?v=5"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>
