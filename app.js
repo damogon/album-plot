@@ -6,28 +6,26 @@ const MB_BASE = "https://musicbrainz.org/ws/2";
 const CAA_BASE = "https://coverartarchive.org";
 const SITE_URL = "damogon.github.io/album-plot/";
 
-const CARD_W = 540;     // ancho fijo de la tarjeta (px de diseño)
-const EXPORT_W = 1080;  // ancho de la imagen exportada
-
-// Placeholder embebido (SVG en data URI) para portadas que no existen
-const PLACEHOLDER_COVER =
-  "data:image/svg+xml;utf8," +
-  encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300">
-       <rect width="100%" height="100%" fill="#e9e0d5"/>
-       <text x="50%" y="50%" font-family="sans-serif" font-size="24" fill="#6b625a"
-             text-anchor="middle" dominant-baseline="middle">No cover</text>
-     </svg>`
-  );
+const CARD_W = 540;                 // ancho de diseño de la tarjeta (px lógicos)
+const EXPORT_W = 1080;              // ancho real de la imagen exportada
+const ESCALA = EXPORT_W / CARD_W;   // 2
+const ALTO_TARJETA = { square: CARD_W, story: Math.round(CARD_W * 16 / 9) }; // 540 y 960
 
 let timerBusqueda;
 let peticionArtista = 0; // para descartar respuestas antiguas
 let peticionAlbum = 0;
+let peticionPortada = 0;
 let titulosActuales = []; // nombres de las canciones del álbum elegido
 let notas = [];           // nota de cada canción (null = sin puntuar)
 let indiceActual = 0;     // canción en foco (modo "una cada vez")
-let modoLista = false;    // false = una cada vez, true = lista completa
+let modoLista = false;    // false = una cada vez, true = lista para saltar
 let timerAvance;
+let pantallaActual = 1;   // 1 = buscar y puntuar, 2 = personalizar, 3 = resultado
+let formatoActual = 'square';   // 'square' | 'story'
+let tipoGrafica = 'linea';      // 'linea' | 'barras' | 'curva'
+let albumTitulo = 'Your Album';
+let artistaNombre = 'Artist';
+let portadaImg = null;    // portada cargada (con CORS) para dibujarla en la tarjeta
 
 // DOM Elements
 const inputArtista = document.getElementById('artista');
@@ -37,20 +35,17 @@ const listaCanciones = document.getElementById('lista-canciones');
 const msgCanciones = document.getElementById('msg-canciones');
 const modos = document.getElementById('modos');
 const vistaUno = document.getElementById('vista-uno');
+const vistaLista = document.getElementById('vista-lista');
 const focoNum = document.getElementById('foco-num');
 const focoTitulo = document.getElementById('foco-titulo');
 const focoNotas = document.getElementById('foco-notas');
-const btnAtras = document.getElementById('btn-atras');
-const btnSiguiente = document.getElementById('btn-siguiente');
-const viewArtista = document.getElementById('view-artista');
-const viewAlbum = document.getElementById('view-album');
+const btnPistaAtras = document.getElementById('btn-pista-atras');
+const btnPistaSiguiente = document.getElementById('btn-pista-siguiente');
+const btnContinuar = document.getElementById('btn-continuar');
 const btnDescargar = document.getElementById('btn-descargar');
 const btnCompartir = document.getElementById('btn-compartir');
 const btnBorrar = document.getElementById('btn-borrar');
-const canvasGrafica = document.getElementById('grafica');
-const notaMediaValor = document.getElementById('nota-media-valor');
-const card = document.getElementById('zona-captura');
-const previewEscala = document.getElementById('preview-escala');
+const canvasTarjeta = document.getElementById('tarjeta');
 const progresoFill = document.getElementById('progreso-fill');
 const progresoTexto = document.getElementById('progreso-texto');
 const contador = document.getElementById('contador');
@@ -61,9 +56,10 @@ const albumElegido = document.getElementById('album-elegido');
 const coverElegido = document.getElementById('cover-elegido');
 const aeTitulo = document.getElementById('ae-titulo');
 const aeSub = document.getElementById('ae-sub');
-
-// Marca de agua con el enlace completo
-document.getElementById('marca-agua').textContent = `MADE AT: ${SITE_URL}`;
+const pantallas = [null,
+    document.getElementById('pantalla-1'),
+    document.getElementById('pantalla-2'),
+    document.getElementById('pantalla-3')];
 
 // Cerrar el desplegable al hacer clic fuera
 document.addEventListener('click', (e) => {
@@ -75,6 +71,22 @@ document.addEventListener('click', (e) => {
 // ======================================================
 // UTILIDADES
 // ======================================================
+// Placeholder de portada para el <img> del paso 2 (se genera con un canvas: PNG, no SVG)
+function crearPlaceholder() {
+    const c = document.createElement('canvas');
+    c.width = c.height = 300;
+    const x = c.getContext('2d');
+    x.fillStyle = '#e9e0d5';
+    x.fillRect(0, 0, 300, 300);
+    x.fillStyle = '#6b625a';
+    x.font = '24px sans-serif';
+    x.textAlign = 'center';
+    x.textBaseline = 'middle';
+    x.fillText('No cover', 150, 150);
+    return c.toDataURL('image/png');
+}
+const PLACEHOLDER_COVER = crearPlaceholder();
+
 // Petición con tiempo máximo y reintentos automáticos si MusicBrainz está saturado (503/429).
 // Opciones: intentos, timeoutMs y signal (para cancelarla desde fuera: una cancelación no se reintenta).
 async function fetchJSON(url, { intentos = 3, timeoutMs = 12000, signal } = {}) {
@@ -130,8 +142,13 @@ function todasPuntuadas() {
            notas.every(v => v !== null);
 }
 
+function calcularMedia() {
+    const v = notasPuntuadas();
+    return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
+}
+
 function nombreArchivo() {
-    return `${viewAlbum.textContent.replace(/[^a-z0-9]/gi, '_')}_albumplot.png`;
+    return `${albumTitulo.replace(/[^a-z0-9]/gi, '_')}_albumplot.png`;
 }
 
 function mostrarAviso(texto) {
@@ -139,20 +156,171 @@ function mostrarAviso(texto) {
 }
 
 // ======================================================
-// ESCALA DE LA TARJETA (se reduce en pantallas pequeñas)
+// TINTES DEL COLOR DE ACENTO (colores sólidos, sin color-mix)
 // ======================================================
-function ajustarEscala() {
-    const cw = previewEscala.clientWidth;
-    if (!cw) return;
-    const k = Math.min(1, cw / CARD_W);
-    const offset = (cw - CARD_W * k) / 2;
-    card.style.transform = `translate(${offset}px, 0) scale(${k})`;
-    previewEscala.style.height = `${card.offsetHeight * k}px`;
+function hexARgb(hex) {
+    let h = hex.replace('#', '');
+    if (h.length === 3) h = h.split('').map(x => x + x).join('');
+    const n = parseInt(h, 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
-window.addEventListener('resize', ajustarEscala);
+
+// Mezcla: pct de A + (1 - pct) de B
+function mezclar(hexA, hexB, pct) {
+    const a = hexARgb(hexA), b = hexARgb(hexB);
+    return '#' + a.map((v, i) => Math.round(v * pct + b[i] * (1 - pct)).toString(16).padStart(2, '0')).join('');
+}
+
+function aplicarTintes() {
+    const root = document.documentElement;
+    const css = getComputedStyle(root);
+    const c = css.getPropertyValue('--c').trim();
+    const bg = css.getPropertyValue('--bg').trim();
+    const line = css.getPropertyValue('--line').trim();
+    root.style.setProperty('--tinte-fondo', mezclar(c, bg, 0.14));
+    root.style.setProperty('--tinte-borde', mezclar(c, line, 0.45));
+    root.style.setProperty('--tinte-hover', mezclar(c, '#ffffff', 0.30));
+}
 
 // ======================================================
-// GEOMETRÍA para colocar las etiquetas sin que nada las tape
+// PANTALLAS (1: buscar y puntuar · 2: personalizar · 3: resultado)
+// ======================================================
+function irAPantalla(n, registrar = true) {
+    if (n > 1 && !todasPuntuadas()) n = 1; // no se puede avanzar sin puntuar todo
+    const cambia = n !== pantallaActual;
+    pantallaActual = n;
+
+    pantallas.forEach((p, i) => { if (p) p.hidden = (i !== n); });
+    clearTimeout(timerAvance);
+    mostrarAviso('');
+
+    if (registrar && cambia) history.pushState({ pantalla: n }, '');
+    window.scrollTo(0, 0);
+
+    if (n === 1) refrescarPreview();
+    if (n === 3) {
+        redibujarTarjeta();
+        // Si las fuentes de Google aún no estaban listas, se vuelve a dibujar cuando lo estén
+        asegurarFuentes().then(() => { if (pantallaActual === 3) redibujarTarjeta(); });
+    }
+}
+
+// El botón "atrás" del navegador / del móvil también vuelve a la pantalla anterior
+history.replaceState({ pantalla: 1 }, '');
+window.addEventListener('popstate', (e) => irAPantalla(e.state?.pantalla || 1, false));
+
+// Cualquier botón con data-ir="N" lleva a esa pantalla
+document.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-ir]');
+    if (b && !b.disabled) irAPantalla(Number(b.dataset.ir));
+});
+
+function asegurarFuentes() {
+    if (!document.fonts || !document.fonts.load) return Promise.resolve();
+    return Promise.all([
+        document.fonts.load("700 24px Oswald"),
+        document.fonts.load("600 16px Oswald"),
+        document.fonts.load("700 16px Nunito")
+    ]).catch(() => {});
+}
+
+// ======================================================
+// DIBUJO: utilidades de canvas
+// ======================================================
+function rutaRedondeada(ctx, x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+}
+
+// Barra con las esquinas superiores redondeadas
+function rutaBarra(ctx, x, y, w, h, r) {
+    r = Math.min(r, w / 2, h);
+    ctx.beginPath();
+    ctx.moveTo(x, y + h);
+    ctx.lineTo(x, y + r);
+    ctx.arcTo(x, y, x + r, y, r);
+    ctx.lineTo(x + w - r, y);
+    ctx.arcTo(x + w, y, x + w, y + r, r);
+    ctx.lineTo(x + w, y + h);
+    ctx.closePath();
+}
+
+// Texto con separación entre letras (canvas.letterSpacing no está en todos los navegadores)
+function anchoEspaciado(ctx, texto, espacio) {
+    let w = 0;
+    for (const ch of texto) w += ctx.measureText(ch).width + espacio;
+    return Math.max(0, w - espacio);
+}
+
+function textoEspaciado(ctx, texto, x, cy, espacio, alinear = 'center') {
+    const total = anchoEspaciado(ctx, texto, espacio);
+    let cx = alinear === 'center' ? x - total / 2 : x;
+    const prev = ctx.textAlign;
+    ctx.textAlign = 'left';
+    for (const ch of texto) {
+        ctx.fillText(ch, cx, cy);
+        cx += ctx.measureText(ch).width + espacio;
+    }
+    ctx.textAlign = prev;
+    return total;
+}
+
+// Parte un texto en líneas que quepan en maxW (corta palabras demasiado largas)
+function partirLineas(ctx, texto, maxW) {
+    const palabras = texto.split(/\s+/).filter(Boolean);
+    const lineas = [];
+    let actual = '';
+    palabras.forEach(p => {
+        if (ctx.measureText(p).width > maxW) {
+            if (actual) { lineas.push(actual); actual = ''; }
+            let trozo = '';
+            for (const ch of p) {
+                if (trozo && ctx.measureText(trozo + ch).width > maxW) { lineas.push(trozo); trozo = ch; }
+                else trozo += ch;
+            }
+            actual = trozo;
+            return;
+        }
+        const prueba = actual ? `${actual} ${p}` : p;
+        if (actual && ctx.measureText(prueba).width > maxW) { lineas.push(actual); actual = p; }
+        else actual = prueba;
+    });
+    if (actual) lineas.push(actual);
+    return lineas;
+}
+
+// Ajusta el tamaño de fuente hasta que el texto quepa en maxLineas; si no, recorta con "…"
+function ajustarTexto(ctx, texto, fuente, tamBase, tamMin, maxW, maxLineas) {
+    let tam = tamBase, lineas;
+    for (; tam >= tamMin; tam -= 2) {
+        ctx.font = fuente(tam);
+        lineas = partirLineas(ctx, texto, maxW);
+        if (lineas.length <= maxLineas) return { lineas, tam };
+    }
+    tam = tamMin;
+    ctx.font = fuente(tam);
+    lineas = partirLineas(ctx, texto, maxW).slice(0, maxLineas);
+    let ultima = lineas[maxLineas - 1];
+    while (ultima.length > 1 && ctx.measureText(ultima + '…').width > maxW) ultima = ultima.slice(0, -1);
+    lineas[maxLineas - 1] = ultima.trimEnd() + '…';
+    return { lineas, tam };
+}
+
+function recortarAncho(ctx, texto, maxW) {
+    if (ctx.measureText(texto).width <= maxW) return texto;
+    let t = texto;
+    while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+    return t.trimEnd() + '…';
+}
+
+// ======================================================
+// DIBUJO: geometría para colocar las etiquetas sin que nada las tape
 // ======================================================
 // ¿El segmento s corta el rectángulo r? (Liang–Barsky)
 function rectCortaSegmento(r, s) {
@@ -191,28 +359,35 @@ function inflar(r, d) {
     return { x: r.x - d, y: r.y - d, w: r.w + 2 * d, h: r.h + 2 * d };
 }
 
+// Tangentes de una interpolación cúbica monótona (Fritsch–Carlson):
+// la curva suave nunca se sale del rango de las notas (no baja de 0 ni pasa de 10)
+function tangentesMonotonas(pts) {
+    const n = pts.length;
+    const d = [], m = new Array(n).fill(0);
+    for (let k = 0; k < n - 1; k++) d[k] = (pts[k + 1].y - pts[k].y) / (pts[k + 1].x - pts[k].x);
+    m[0] = d[0];
+    m[n - 1] = d[n - 2];
+    for (let k = 1; k < n - 1; k++) m[k] = d[k - 1] * d[k] <= 0 ? 0 : (d[k - 1] + d[k]) / 2;
+    for (let k = 0; k < n - 1; k++) {
+        if (d[k] === 0) { m[k] = 0; m[k + 1] = 0; continue; }
+        const a = m[k] / d[k], b = m[k + 1] / d[k], s = a * a + b * b;
+        if (s > 9) {
+            const t = 3 / Math.sqrt(s);
+            m[k] = t * a * d[k];
+            m[k + 1] = t * b * d[k];
+        }
+    }
+    return m;
+}
+
 // ======================================================
-// GRÁFICA (canvas): notas por canción
+// DIBUJO: la gráfica (línea, barras o curva suave) dentro de un área de la tarjeta
 // ======================================================
-function dibujarGrafica() {
-    if (!canvasGrafica) return;
+function dibujarGraficaEn(ctx, ox, oy, W, H, col) {
+    const { ink, lineCol, muted, accent } = col;
 
-    const wrap = canvasGrafica.parentElement;
-    const W = wrap.clientWidth;
-    const H = wrap.clientHeight;
-    if (!W || !H) return;
-
-    const S = 2; // factor de nitidez
-    canvasGrafica.width = W * S;
-    canvasGrafica.height = H * S;
-
-    const ctx = canvasGrafica.getContext('2d');
-    ctx.setTransform(S, 0, 0, S, 0, 0);
-    ctx.clearRect(0, 0, W, H);
-
-    const css = getComputedStyle(document.documentElement);
-    const col = name => css.getPropertyValue(name).trim();
-    const ink = col('--ink'), lineCol = col('--line'), muted = col('--muted'), accent = col('--c');
+    ctx.save();
+    ctx.translate(ox, oy);
 
     const n = titulosActuales.length;
     const m = { l: 34, r: 22, t: 30, b: 40 };
@@ -275,7 +450,7 @@ function dibujarGrafica() {
     ctx.lineTo(m.l, yEje);
     ctx.stroke();
 
-    if (n === 0) return;
+    if (n === 0) { ctx.restore(); return; }
 
     // Eje X: marcas y nombres de canción en diagonal
     ctx.font = `700 ${tam}px 'Nunito', sans-serif`;
@@ -301,8 +476,40 @@ function dibujarGrafica() {
     // Puntos puntuados (se unen en orden, saltando los vacíos)
     const puntos = [];
     notas.forEach((v, i) => { if (v !== null) puntos.push({ x: xAt(i), y: yAt(v), v }); });
-    if (puntos.length === 0) return;
+    if (puntos.length === 0) { ctx.restore(); return; }
 
+    const ETQ_H = 14;
+    const etiqueta = (texto, cx, cy) => {
+        ctx.font = "600 14px 'Oswald', sans-serif";
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = '#fff'; // halo blanco: se lee aunque pase una línea de la rejilla por detrás
+        ctx.strokeText(texto, cx, cy);
+        ctx.fillStyle = ink;
+        ctx.fillText(texto, cx, cy);
+    };
+
+    // ---------------- BARRAS ----------------
+    if (tipoGrafica === 'barras') {
+        const paso = n > 1 ? (pw - 2 * PAD) / (n - 1) : pw / 2;
+        const bw = Math.max(6, Math.min(36, paso * 0.62));
+        puntos.forEach(p => {
+            const alto = Math.max(3, yEje - p.y);
+            ctx.fillStyle = accent;
+            ctx.strokeStyle = ink;
+            ctx.lineWidth = 2;
+            rutaBarra(ctx, p.x - bw / 2, yEje - alto, bw, alto, 4);
+            ctx.fill();
+            ctx.stroke();
+        });
+        puntos.forEach(p => etiqueta(String(p.v), p.x, Math.min(p.y, yEje - 3) - 11));
+        ctx.restore();
+        return;
+    }
+
+    // ---------------- LÍNEA / CURVA SUAVE ----------------
     // Líneas verticales de puntos: unen cada nota con el título de su canción
     ctx.save();
     ctx.strokeStyle = muted;
@@ -317,14 +524,39 @@ function dibujarGrafica() {
     });
     ctx.restore();
 
-    // Línea continua
+    // Trazo (y, para colocar etiquetas, el mismo trazo en forma de segmentos)
+    const segmentos = [];
     if (puntos.length > 1) {
         ctx.strokeStyle = accent;
         ctx.lineWidth = 4;
         ctx.lineJoin = 'round';
         ctx.lineCap = 'round';
         ctx.beginPath();
-        puntos.forEach((p, k) => k === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+        ctx.moveTo(puntos[0].x, puntos[0].y);
+
+        if (tipoGrafica === 'curva') {
+            const tg = tangentesMonotonas(puntos);
+            for (let k = 0; k < puntos.length - 1; k++) {
+                const p0 = puntos[k], p1 = puntos[k + 1], h = p1.x - p0.x;
+                const c1x = p0.x + h / 3, c1y = p0.y + tg[k] * h / 3;
+                const c2x = p1.x - h / 3, c2y = p1.y - tg[k + 1] * h / 3;
+                ctx.bezierCurveTo(c1x, c1y, c2x, c2y, p1.x, p1.y);
+
+                let px = p0.x, py = p0.y;
+                for (let s = 1; s <= 12; s++) {
+                    const u = s / 12, v = 1 - u;
+                    const x = v ** 3 * p0.x + 3 * v * v * u * c1x + 3 * v * u * u * c2x + u ** 3 * p1.x;
+                    const y = v ** 3 * p0.y + 3 * v * v * u * c1y + 3 * v * u * u * c2y + u ** 3 * p1.y;
+                    segmentos.push({ x1: px, y1: py, x2: x, y2: y });
+                    px = x; py = y;
+                }
+            }
+        } else {
+            for (let k = 1; k < puntos.length; k++) {
+                ctx.lineTo(puntos[k].x, puntos[k].y);
+                segmentos.push({ x1: puntos[k - 1].x, y1: puntos[k - 1].y, x2: puntos[k].x, y2: puntos[k].y });
+            }
+        }
         ctx.stroke();
     }
 
@@ -339,18 +571,9 @@ function dibujarGrafica() {
         ctx.stroke();
     });
 
-    // ---- Etiquetas con el valor: se colocan donde no las cruce ninguna línea ----
-    const ETQ_H = 14;
+    // Etiquetas con el valor: se colocan donde no las cruce ninguna línea
     ctx.font = "600 14px 'Oswald', sans-serif";
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    const segmentos = [];
-    for (let k = 0; k < puntos.length - 1; k++) {
-        segmentos.push({ x1: puntos[k].x, y1: puntos[k].y, x2: puntos[k + 1].x, y2: puntos[k + 1].y });
-    }
     const colocadas = [];
-
     puntos.forEach((p, idx) => {
         const texto = String(p.v);
         const w = ctx.measureText(texto).width;
@@ -376,7 +599,7 @@ function dibujarGrafica() {
             const rr = inflar(r, 2);
 
             let score = 0;
-            if (r.x < 0 || r.x + r.w > W || r.y < 0) score += 100;   // fuera del canvas
+            if (r.x < 0 || r.x + r.w > W || r.y < 0) score += 100;   // fuera del área
             if (r.y + r.h > yEje + 1) score += 100;                  // por debajo del eje X
             if (r.x < m.l + 2) score += 6;                           // pisa el eje Y
             segmentos.forEach(s => { if (rectCortaSegmento(rr, s)) score += 10; });
@@ -388,30 +611,187 @@ function dibujarGrafica() {
         });
 
         colocadas.push(mejor.rect);
-
-        // Halo blanco para que se lea aunque pase una línea de la rejilla por detrás
-        ctx.lineJoin = 'round';
-        ctx.lineWidth = 4;
-        ctx.strokeStyle = '#fff';
-        ctx.strokeText(texto, mejor.cx, mejor.cy);
-        ctx.fillStyle = ink;
-        ctx.fillText(texto, mejor.cx, mejor.cy);
+        etiqueta(texto, mejor.cx, mejor.cy);
     });
+
+    ctx.restore();
 }
 
 // ======================================================
-// PREVIEW: media, progreso y estado de los botones
+// DIBUJO: la tarjeta completa (es lo que se ve en pantalla Y lo que se descarga)
 // ======================================================
-function actualizarMedia() {
-    const valores = notasPuntuadas();
-    if (valores.length === 0) {
-        notaMediaValor.textContent = '–';
-        return;
+function dibujarMarca(ctx, cx, top, tam, col) {
+    const alto = Math.round(tam * 1.3);
+    const espacio = tam * 0.04;
+    ctx.font = `700 ${tam}px 'Oswald', sans-serif`;
+    ctx.textBaseline = 'middle';
+    const wAlbum = anchoEspaciado(ctx, 'ALBUM', espacio);
+    const wPlot = anchoEspaciado(ctx, 'PLOT', espacio);
+    const wPildora = wPlot + 12;
+    const x0 = cx - (wAlbum + wPlot + 12) / 2;
+    const cy = top + alto / 2 + 0.5;
+
+    ctx.fillStyle = col.ink;
+    textoEspaciado(ctx, 'ALBUM', x0, cy, espacio, 'left');
+
+    ctx.fillStyle = col.accent;
+    rutaRedondeada(ctx, x0 + wAlbum, top, wPildora, alto, 6);
+    ctx.fill();
+    ctx.fillStyle = col.ink;
+    textoEspaciado(ctx, 'PLOT', x0 + wAlbum + 6, cy, espacio, 'left');
+    return top + alto;
+}
+
+function dibujarPortada(ctx, x, y, tam, col) {
+    ctx.save();
+    rutaRedondeada(ctx, x, y, tam, tam, 12);
+    ctx.clip();
+    if (portadaImg) {
+        // equivalente a object-fit: cover
+        const iw = portadaImg.naturalWidth, ih = portadaImg.naturalHeight;
+        const lado = Math.min(iw, ih);
+        ctx.drawImage(portadaImg, (iw - lado) / 2, (ih - lado) / 2, lado, lado, x, y, tam, tam);
+    } else {
+        ctx.fillStyle = col.lineCol;
+        ctx.fillRect(x, y, tam, tam);
+        ctx.fillStyle = col.muted;
+        ctx.font = `700 ${Math.max(11, Math.round(tam * 0.13))}px 'Nunito', sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('No cover', x + tam / 2, y + tam / 2);
     }
-    const media = valores.reduce((a, b) => a + b, 0) / valores.length;
-    notaMediaValor.textContent = media.toFixed(1);
+    ctx.restore();
+    rutaRedondeada(ctx, x, y, tam, tam, 12);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = col.lineCol;
+    ctx.stroke();
 }
 
+function dibujarInsignia(ctx, cx, cy, media, col) {
+    const r = 42;
+    ctx.fillStyle = col.ink;                       // sombra
+    ctx.beginPath(); ctx.arc(cx, cy + 4, r, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();   // borde
+    ctx.fillStyle = col.accent;
+    ctx.beginPath(); ctx.arc(cx, cy, r - 3, 0, Math.PI * 2); ctx.fill();
+
+    ctx.fillStyle = col.ink;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = "700 32px 'Oswald', sans-serif";
+    ctx.fillText(media === null ? '–' : media.toFixed(1), cx, cy - 6);
+    ctx.font = "600 11px 'Oswald', sans-serif";
+    textoEspaciado(ctx, 'AVG', cx, cy + 17, 1.3);
+}
+
+function dibujarTarjeta() {
+    const W = CARD_W;
+    const H = ALTO_TARJETA[formatoActual];
+    const story = formatoActual === 'story';
+    const pad = 24;
+
+    canvasTarjeta.width = EXPORT_W;
+    canvasTarjeta.height = H * ESCALA;
+
+    const ctx = canvasTarjeta.getContext('2d');
+    ctx.setTransform(ESCALA, 0, 0, ESCALA, 0, 0);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, W, H);
+
+    const css = getComputedStyle(document.documentElement);
+    const v = name => css.getPropertyValue(name).trim();
+    const col = { ink: v('--ink'), lineCol: v('--line'), muted: v('--muted'), accent: v('--c') };
+
+    // Marca
+    const marcaBase = dibujarMarca(ctx, W / 2, story ? 56 : 24, story ? 26 : 22, col);
+
+    // Nota media (esquina superior derecha)
+    dibujarInsignia(ctx, W - 16 - 42, (story ? 48 : 16) + 42, calcularMedia(), col);
+
+    // Cabecera: portada + título + artista
+    let yFinCabecera;
+    ctx.textBaseline = 'alphabetic';
+    if (!story) {
+        const top = marcaBase + 14, cover = 84, xTxt = pad + cover + 16;
+        const maxW = W - pad - 96 - xTxt;
+        dibujarPortada(ctx, pad, top, cover, col);
+
+        const fuenteTitulo = t => `700 ${t}px 'Oswald', sans-serif`;
+        const tit = ajustarTexto(ctx, albumTitulo.toUpperCase(), fuenteTitulo, 24, 16, maxW, 3);
+        ctx.font = "700 16px 'Nunito', sans-serif";
+        const art = recortarAncho(ctx, artistaNombre, maxW);
+
+        const lh = Math.round(tit.tam * 1.15);
+        const bloque = tit.lineas.length * lh + 6 + 20;
+        let y = top + Math.max(0, (cover - bloque) / 2);
+
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillStyle = col.ink;
+        ctx.font = fuenteTitulo(tit.tam);
+        tit.lineas.forEach((l, i) => ctx.fillText(l, xTxt, y + i * lh));
+        ctx.fillStyle = col.muted;
+        ctx.font = "700 16px 'Nunito', sans-serif";
+        ctx.fillText(art, xTxt, y + tit.lineas.length * lh + 6);
+
+        yFinCabecera = top + Math.max(cover, bloque) + 12;
+    } else {
+        const top = marcaBase + 18, cover = 170;
+        dibujarPortada(ctx, (W - cover) / 2, top, cover, col);
+
+        const maxW = W - 2 * pad - 16;
+        const fuenteTitulo = t => `700 ${t}px 'Oswald', sans-serif`;
+        const tit = ajustarTexto(ctx, albumTitulo.toUpperCase(), fuenteTitulo, 30, 20, maxW, 3);
+        const lh = Math.round(tit.tam * 1.15);
+        let y = top + cover + 14;
+
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillStyle = col.ink;
+        ctx.font = fuenteTitulo(tit.tam);
+        tit.lineas.forEach((l, i) => ctx.fillText(l, W / 2, y + i * lh));
+        y += tit.lineas.length * lh + 6;
+
+        ctx.fillStyle = col.muted;
+        ctx.font = "700 16px 'Nunito', sans-serif";
+        ctx.fillText(recortarAncho(ctx, artistaNombre, maxW), W / 2, y);
+
+        yFinCabecera = y + 20 + 16;
+    }
+
+    // Separador discontinuo en el color de acento
+    ctx.save();
+    ctx.strokeStyle = col.accent;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    ctx.moveTo(pad, yFinCabecera);
+    ctx.lineTo(W - pad, yFinCabecera);
+    ctx.stroke();
+    ctx.restore();
+
+    // Marca de agua
+    const yMarcaAgua = H - (story ? 40 : 16) - 6;
+    ctx.fillStyle = col.muted;
+    ctx.textBaseline = 'middle';
+    ctx.font = "700 11px 'Nunito', sans-serif";
+    textoEspaciado(ctx, `MADE AT: ${SITE_URL}`, W / 2, yMarcaAgua, 0.55);
+
+    // Gráfica en el espacio que queda
+    const yGraf = yFinCabecera + 10;
+    const hGraf = (yMarcaAgua - 14) - yGraf;
+    dibujarGraficaEn(ctx, pad, yGraf, W - 2 * pad, hGraf, col);
+}
+
+function redibujarTarjeta() {
+    if (pantallaActual !== 3) return;
+    dibujarTarjeta();
+    invalidarImagen();
+}
+
+// ======================================================
+// ENTRADA DE NOTAS: vistas, progreso y estado de los botones
+// ======================================================
 function actualizarProgreso() {
     const total = titulosActuales.length;
     const hechas = notasPuntuadas().length;
@@ -422,34 +802,25 @@ function actualizarProgreso() {
     if (total === 0) {
         progresoTexto.textContent = 'Select an album to start rating.';
     } else if (hechas < total) {
-        progresoTexto.textContent = `${hechas} of ${total} tracks rated. Rate all tracks to save.`;
+        progresoTexto.textContent = `${hechas} of ${total} tracks rated. Rate all tracks to continue.`;
     } else {
-        progresoTexto.textContent = 'All tracks rated. Ready to save or share!';
+        progresoTexto.textContent = 'All tracks rated. Ready to continue!';
     }
 }
 
 function refrescarPreview() {
     actualizarEntrada();
-    dibujarGrafica();
-    actualizarMedia();
     actualizarProgreso();
 
     const lista = todasPuntuadas();
+    btnContinuar.disabled = !lista;
     btnDescargar.disabled = !lista;
     btnCompartir.disabled = !lista;
     btnBorrar.disabled = notasPuntuadas().length === 0;
 
-    invalidarImagen();
+    redibujarTarjeta(); // solo hace algo si se está viendo la pantalla 3
 }
 
-// Redibujar cuando las fuentes de Google estén cargadas
-if (document.fonts && document.fonts.ready) {
-    document.fonts.ready.then(() => { ajustarEscala(); refrescarPreview(); });
-}
-
-// ======================================================
-// ENTRADA DE NOTAS: vistas y estado
-// ======================================================
 function mensajeCanciones(texto, cargando = false, reintentar = null) {
     msgCanciones.innerHTML = '';
     if (cargando) {
@@ -475,12 +846,18 @@ function actualizarVistas() {
     msgCanciones.hidden = hay;
     modos.hidden = !hay;
     vistaUno.hidden = !hay || modoLista;
-    listaCanciones.hidden = !hay || !modoLista;
+    vistaLista.hidden = !hay || !modoLista;
 }
 
 function actualizarEntrada() {
-    pintarNotas();
+    pintarLista();
     renderFoco();
+}
+
+function cambiarModo(lista) {
+    modoLista = lista;
+    modos.querySelectorAll('.seg').forEach(s => s.classList.toggle('sel', (s.dataset.modo === 'lista') === lista));
+    actualizarVistas();
 }
 
 // ---------- Modo "una canción cada vez" ----------
@@ -512,13 +889,13 @@ function renderFoco() {
     });
 
     const ultima = i === n - 1;
-    btnAtras.disabled = i === 0;
+    btnPistaAtras.disabled = i === 0;
     if (ultima && todasPuntuadas()) {
-        btnSiguiente.textContent = 'See plot ↓';
-        btnSiguiente.disabled = false;
+        btnPistaSiguiente.textContent = 'Continue →';
+        btnPistaSiguiente.disabled = false;
     } else {
-        btnSiguiente.textContent = 'Next →';
-        btnSiguiente.disabled = ultima;
+        btnPistaSiguiente.textContent = 'Next →';
+        btnPistaSiguiente.disabled = ultima;
     }
 }
 
@@ -558,79 +935,59 @@ focoNotas.addEventListener('click', (e) => {
     refrescarPreview();
 });
 
-btnAtras.addEventListener('click', () => irA(indiceActual - 1));
+btnPistaAtras.addEventListener('click', () => irA(indiceActual - 1));
 
-btnSiguiente.addEventListener('click', () => {
+btnPistaSiguiente.addEventListener('click', () => {
     const ultima = indiceActual === titulosActuales.length - 1;
-    if (ultima && todasPuntuadas()) {
-        document.getElementById('paso-preview').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    } else {
-        irA(indiceActual + 1);
-    }
+    if (ultima && todasPuntuadas()) irAPantalla(2);
+    else irA(indiceActual + 1);
 });
 
 // Cambiar entre "One by one" y "Full list"
 modos.addEventListener('click', (e) => {
     const btn = e.target.closest('.seg');
-    if (!btn) return;
-    modoLista = btn.dataset.modo === 'lista';
-    modos.querySelectorAll('.seg').forEach(s => s.classList.toggle('sel', s === btn));
-    actualizarVistas();
+    if (btn) cambiarModo(btn.dataset.modo === 'lista');
 });
 
-// ---------- Modo lista completa ----------
+// ---------- Modo "Full list": solo sirve para saltar a una canción ----------
 function crearFilaCancion(titulo, index) {
-    const item = document.createElement('div');
-    item.className = 'cancion-item';
+    const fila = document.createElement('button');
+    fila.type = 'button';
+    fila.className = 'cancion-fila';
+    fila.dataset.i = index;
+
+    const num = document.createElement('span');
+    num.className = 'cf-num';
+    num.textContent = index + 1;
 
     const nombre = document.createElement('span');
-    nombre.className = 'cancion-nombre';
-    nombre.textContent = `${index + 1}. ${titulo}`;
+    nombre.className = 'cf-nombre';
+    nombre.textContent = titulo;
 
-    const fila = document.createElement('div');
-    fila.className = 'notas';
-    fila.setAttribute('role', 'group');
-    fila.setAttribute('aria-label', `Rating for ${titulo}`);
+    const nota = document.createElement('span');
+    nota.className = 'cf-nota';
+    nota.textContent = '–';
 
-    for (let v = 0; v <= 10; v++) {
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'nota-btn';
-        btn.dataset.i = index;
-        btn.dataset.v = v;
-        btn.textContent = v;
-        btn.setAttribute('aria-pressed', 'false');
-        btn.setAttribute('aria-label', `${v} for ${titulo}`);
-        fila.appendChild(btn);
-    }
-
-    item.appendChild(nombre);
-    item.appendChild(fila);
-    return item;
+    fila.append(num, nombre, nota);
+    return fila;
 }
 
-function pintarNotas() {
-    listaCanciones.querySelectorAll('.cancion-item').forEach((item, i) => {
-        item.querySelectorAll('.nota-btn').forEach(btn => {
-            const activo = notas[i] === Number(btn.dataset.v);
-            btn.classList.toggle('sel', activo);
-            btn.setAttribute('aria-pressed', String(activo));
-        });
+function pintarLista() {
+    listaCanciones.querySelectorAll('.cancion-fila').forEach((fila, i) => {
+        const nota = notas[i];
+        fila.querySelector('.cf-nota').textContent = nota === null || nota === undefined ? '–' : nota;
+        fila.classList.toggle('hecho', nota !== null && nota !== undefined);
+        fila.classList.toggle('actual', i === indiceActual);
+        fila.setAttribute('aria-label',
+            `Track ${i + 1}: ${titulosActuales[i]}. ${nota === null || nota === undefined ? 'Not rated' : `Rated ${nota}`}. Tap to rate.`);
     });
 }
 
-// Un clic pone la nota; otro clic sobre la misma la quita
 listaCanciones.addEventListener('click', (e) => {
-    const btn = e.target.closest('.nota-btn');
-    if (!btn) return;
-
-    const i = Number(btn.dataset.i);
-    const v = Number(btn.dataset.v);
-    notas[i] = notas[i] === v ? null : v;
-    indiceActual = i; // si vuelve al modo "una cada vez", estará en esta canción
-
-    mostrarAviso('');
-    refrescarPreview();
+    const fila = e.target.closest('.cancion-fila');
+    if (!fila) return;
+    cambiarModo(false);          // vuelve a "One by one"...
+    irA(Number(fila.dataset.i)); // ...en la canción elegida
 });
 
 // Borrar todas las notas
@@ -645,10 +1002,11 @@ btnBorrar.addEventListener('click', () => {
 crearBotonesFoco();
 
 // ======================================================
-// COLOR DE ACENTO
+// COLOR DE ACENTO, FORMATO Y TIPO DE GRÁFICA
 // ======================================================
 function aplicarColor(valor, swatchActivo) {
     document.documentElement.style.setProperty('--c', valor);
+    aplicarTintes();
     document.querySelectorAll('.swatch').forEach(s => s.classList.toggle('sel', s === swatchActivo));
     refrescarPreview();
 }
@@ -666,19 +1024,20 @@ document.getElementById('btn-random').addEventListener('click', () => {
     aplicarColor(elegido.dataset.color, elegido);
 });
 
-// ======================================================
-// FORMATO DE LA IMAGEN (1:1 o 9:16)
-// ======================================================
 document.getElementById('formatos').addEventListener('click', (e) => {
     const btn = e.target.closest('.seg');
     if (!btn) return;
-
+    formatoActual = btn.dataset.fmt;
     document.querySelectorAll('#formatos .seg').forEach(s => s.classList.toggle('sel', s === btn));
-    card.classList.toggle('fmt-square', btn.dataset.fmt === 'square');
-    card.classList.toggle('fmt-story', btn.dataset.fmt === 'story');
+    redibujarTarjeta();
+});
 
-    ajustarEscala();
-    refrescarPreview();
+document.getElementById('tipos-grafica').addEventListener('click', (e) => {
+    const btn = e.target.closest('.seg');
+    if (!btn) return;
+    tipoGrafica = btn.dataset.grafica;
+    document.querySelectorAll('#tipos-grafica .seg').forEach(s => s.classList.toggle('sel', s === btn));
+    redibujarTarjeta();
 });
 
 // ======================================================
@@ -739,7 +1098,7 @@ function pintarArtistas(artistas) {
         item.addEventListener('click', () => {
             cancelarBusquedaArtistas(); // por si había una petición en vuelo
             inputArtista.value = art.name;
-            viewArtista.textContent = art.name;
+            artistaNombre = art.name;
             dropdownArtistas.style.display = 'none';
             buscarAlbumes(art.id);
         });
@@ -805,7 +1164,7 @@ async function buscarAlbumes(idArtista) {
     selectAlbumes.disabled = true;
     selectAlbumes.innerHTML = '<option value="">Loading albums...</option>';
     listaCanciones.innerHTML = '';
-    viewAlbum.textContent = "Your Album";
+    albumTitulo = "Your Album";
     titulosActuales = [];
     notas = [];
     indiceActual = 0;
@@ -857,33 +1216,36 @@ async function buscarAlbumes(idArtista) {
 // ======================================================
 // 3. PORTADA
 // ======================================================
+// Portada para la tarjeta (canvas): se carga con CORS para que la imagen exportada no quede "contaminada".
+// Si la portada no existe o no permite CORS, la tarjeta dibuja el cuadro "No cover".
 function resetPortada() {
-    const coverArt = document.getElementById('cover-art');
-    if (!coverArt) return;
-    coverArt.onerror = null;
-    coverArt.onload = null;
-    coverArt.classList.remove('visible'); // oculta la imagen hasta que haya álbum
-    coverArt.removeAttribute('src');
+    ++peticionPortada;
+    portadaImg = null;
 }
 
 function cargarPortada(idReleaseGroup) {
-    const coverArt = document.getElementById('cover-art');
-    if (!coverArt) return;
+    const miId = ++peticionPortada;
+    portadaImg = null;
 
-    coverArt.crossOrigin = "anonymous"; // necesario para que html2canvas pueda dibujarla
-    coverArt.classList.add('visible');
-    coverArt.onload = invalidarImagen;  // al cargar la portada, la imagen exportable cambia
-    coverArt.onerror = () => {
-        coverArt.onerror = null;
-        coverArt.src = PLACEHOLDER_COVER;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+        if (miId !== peticionPortada) return;
+        portadaImg = img;
+        redibujarTarjeta();
     };
-    coverArt.src = `${CAA_BASE}/release-group/${idReleaseGroup}/front-500`;
+    img.onerror = () => {
+        if (miId !== peticionPortada) return;
+        portadaImg = null;
+        redibujarTarjeta();
+    };
+    img.src = `${CAA_BASE}/release-group/${idReleaseGroup}/front-500`;
 }
 
-// Portada + título del álbum elegido en el paso 1, para confirmar que es el correcto
+// Portada + título del álbum elegido en el paso 2, para confirmar que es el correcto
 function mostrarAlbumElegido(idGrupo, titulo, anio) {
     aeTitulo.textContent = titulo;
-    aeSub.textContent = [viewArtista.textContent, anio].filter(Boolean).join(' · ');
+    aeSub.textContent = [artistaNombre, anio].filter(Boolean).join(' · ');
 
     coverElegido.crossOrigin = "anonymous";
     coverElegido.onerror = () => {
@@ -974,8 +1336,9 @@ async function cargarCanciones(idGrupo) {
         titulos.forEach((titulo, index) => {
             listaCanciones.appendChild(crearFilaCancion(titulo, index));
         });
+        cambiarModo(false); // siempre se empieza en "One by one"
         actualizarVistas();
-        refrescarPreview(); // los botones siguen desactivados hasta puntuar todo
+        refrescarPreview();
     } catch (err) {
         console.error("Error cargando canciones:", err);
         if (miPeticion === peticionAlbum) {
@@ -993,50 +1356,38 @@ selectAlbumes.addEventListener('change', () => {
 
     const opcion = selectAlbumes.options[selectAlbumes.selectedIndex];
     const titulo = opcion.dataset.title || opcion.text;
-    viewAlbum.textContent = titulo;
+    albumTitulo = titulo;
     mostrarAlbumElegido(idGrupo, titulo, opcion.dataset.year);
     cargarCanciones(idGrupo);
     llevarAPasoPuntuar(); // en móvil, el paso 2 (con la portada) queda fuera de pantalla
 });
 
 // ======================================================
-// 5. GENERAR IMAGEN (descargar / compartir)
+// 5. IMAGEN: descargar y compartir (se exporta el propio canvas de la tarjeta)
 // ======================================================
-let imagenPromesa = null;   // imagen ya generada (o en proceso) para el estado actual
+let blobPromesa = null;   // imagen ya generada (o en proceso) para el dibujo actual
 let timerImagen;
 
-// Cada cambio invalida la imagen y, si todo está puntuado, la prepara en segundo plano.
+// Cada redibujado invalida la imagen y la prepara en segundo plano.
 // Así "Share" puede abrirse al instante (algunos móviles exigen que se llame justo tras el toque).
 function invalidarImagen() {
-    imagenPromesa = null;
+    blobPromesa = null;
     clearTimeout(timerImagen);
-    if (todasPuntuadas()) {
-        timerImagen = setTimeout(() => { obtenerImagen().catch(() => {}); }, 500);
+    if (pantallaActual === 3 && todasPuntuadas()) {
+        timerImagen = setTimeout(() => { obtenerImagen().catch(() => {}); }, 300);
     }
 }
 
-function generarBlob() {
-    return html2canvas(card, {
-        scale: EXPORT_W / CARD_W,
-        backgroundColor: '#ffffff',
-        logging: false,
-        useCORS: true,
-        windowWidth: 900,
-        onclone: (doc) => {
-            // En la copia que se renderiza: sin reducción, sin borde ni esquinas redondeadas
-            const c = doc.getElementById('zona-captura');
-            c.style.transform = 'none';
-            c.style.boxShadow = 'none';
-            c.style.borderRadius = '0';
-        }
-    }).then(canvas => new Promise((resolve, reject) => {
-        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('toBlob falló')), 'image/png');
-    }));
-}
-
 function obtenerImagen() {
-    if (!imagenPromesa) imagenPromesa = generarBlob();
-    return imagenPromesa;
+    if (!blobPromesa) {
+        blobPromesa = new Promise((resolve, reject) => {
+            canvasTarjeta.toBlob(
+                blob => blob ? resolve(blob) : reject(new Error('toBlob devolvió null')),
+                'image/png'
+            );
+        }).catch(err => { blobPromesa = null; throw err; }); // un fallo no se queda guardado
+    }
+    return blobPromesa;
 }
 
 function descargarBlob(blob) {
@@ -1103,10 +1454,11 @@ btnCompartir.addEventListener('click', () => {
                 return;
             }
 
+            const media = calcularMedia();
             await navigator.share({
                 files: [file],
-                title: `${viewAlbum.textContent} - ${viewArtista.textContent}`,
-                text: `My AlbumPlot for ${viewAlbum.textContent} by ${viewArtista.textContent}: ${notaMediaValor.textContent}/10 · ${SITE_URL}`
+                title: `${albumTitulo} - ${artistaNombre}`,
+                text: `My AlbumPlot for ${albumTitulo} by ${artistaNombre}: ${media === null ? '–' : media.toFixed(1)}/10 · ${SITE_URL}`
             });
         } catch (err) {
             if (err.name === 'AbortError') return; // el usuario cerró el menú de compartir
@@ -1119,5 +1471,5 @@ btnCompartir.addEventListener('click', () => {
 // ======================================================
 // ARRANQUE
 // ======================================================
-ajustarEscala();
+aplicarTintes();
 refrescarPreview();
