@@ -18,9 +18,8 @@ let peticionPortada = 0;
 let titulosActuales = []; // nombres de las canciones del álbum elegido
 let notas = [];           // nota de cada canción (null = sin puntuar)
 let indiceActual = 0;     // canción en foco (modo "una cada vez")
-let modoLista = false;    // false = una cada vez, true = lista para saltar
 let timerAvance;
-let pantallaActual = 1;   // 1 = buscar y puntuar, 2 = personalizar, 3 = resultado
+let pantallaActual = 1;   // 1 = buscar y puntuar, 2 = personalizar y ver el resultado
 let formatoActual = 'square';   // 'square' | 'story'
 let tipoGrafica = 'linea';      // 'linea' | 'barras' | 'curva'
 let albumTitulo = 'Your Album';
@@ -31,11 +30,8 @@ let portadaImg = null;    // portada cargada (con CORS) para dibujarla en la tar
 const inputArtista = document.getElementById('artista');
 const dropdownArtistas = document.getElementById('dropdown-artistas');
 const selectAlbumes = document.getElementById('albumes');
-const listaCanciones = document.getElementById('lista-canciones');
 const msgCanciones = document.getElementById('msg-canciones');
-const modos = document.getElementById('modos');
 const vistaUno = document.getElementById('vista-uno');
-const vistaLista = document.getElementById('vista-lista');
 const focoNum = document.getElementById('foco-num');
 const focoTitulo = document.getElementById('foco-titulo');
 const focoNotas = document.getElementById('foco-notas');
@@ -58,8 +54,7 @@ const aeTitulo = document.getElementById('ae-titulo');
 const aeSub = document.getElementById('ae-sub');
 const pantallas = [null,
     document.getElementById('pantalla-1'),
-    document.getElementById('pantalla-2'),
-    document.getElementById('pantalla-3')];
+    document.getElementById('pantalla-2')];
 
 // Cerrar el desplegable al hacer clic fuera
 document.addEventListener('click', (e) => {
@@ -183,7 +178,7 @@ function aplicarTintes() {
 }
 
 // ======================================================
-// PANTALLAS (1: buscar y puntuar · 2: personalizar · 3: resultado)
+// PANTALLAS (1: buscar y puntuar · 2: personalizar y ver el resultado)
 // ======================================================
 function irAPantalla(n, registrar = true) {
     if (n > 1 && !todasPuntuadas()) n = 1; // no se puede avanzar sin puntuar todo
@@ -198,10 +193,10 @@ function irAPantalla(n, registrar = true) {
     window.scrollTo(0, 0);
 
     if (n === 1) refrescarPreview();
-    if (n === 3) {
+    if (n === 2) {
         redibujarTarjeta();
         // Si las fuentes de Google aún no estaban listas, se vuelve a dibujar cuando lo estén
-        asegurarFuentes().then(() => { if (pantallaActual === 3) redibujarTarjeta(); });
+        asegurarFuentes().then(() => { if (pantallaActual === 2) redibujarTarjeta(); });
     }
 }
 
@@ -643,8 +638,9 @@ function dibujarMarca(ctx, cx, top, tam, col) {
 }
 
 function dibujarPortada(ctx, x, y, tam, col) {
+    const radio = Math.round(tam * 0.1);
     ctx.save();
-    rutaRedondeada(ctx, x, y, tam, tam, 12);
+    rutaRedondeada(ctx, x, y, tam, tam, radio);
     ctx.clip();
     if (portadaImg) {
         // equivalente a object-fit: cover
@@ -661,7 +657,7 @@ function dibujarPortada(ctx, x, y, tam, col) {
         ctx.fillText('No cover', x + tam / 2, y + tam / 2);
     }
     ctx.restore();
-    rutaRedondeada(ctx, x, y, tam, tam, 12);
+    rutaRedondeada(ctx, x, y, tam, tam, radio);
     ctx.lineWidth = 2;
     ctx.strokeStyle = col.lineCol;
     ctx.stroke();
@@ -712,7 +708,7 @@ function dibujarTarjeta() {
     let yFinCabecera;
     ctx.textBaseline = 'alphabetic';
     if (!story) {
-        const top = marcaBase + 14, cover = 84, xTxt = pad + cover + 16;
+        const top = marcaBase + 14, cover = 124, xTxt = pad + cover + 18;
         const maxW = W - pad - 96 - xTxt;
         dibujarPortada(ctx, pad, top, cover, col);
 
@@ -736,7 +732,7 @@ function dibujarTarjeta() {
 
         yFinCabecera = top + Math.max(cover, bloque) + 12;
     } else {
-        const top = marcaBase + 18, cover = 170;
+        const top = marcaBase + 18, cover = 250;
         dibujarPortada(ctx, (W - cover) / 2, top, cover, col);
 
         const maxW = W - 2 * pad - 16;
@@ -784,7 +780,7 @@ function dibujarTarjeta() {
 }
 
 function redibujarTarjeta() {
-    if (pantallaActual !== 3) return;
+    if (pantallaActual !== 2) return;
     dibujarTarjeta();
     invalidarImagen();
 }
@@ -818,7 +814,7 @@ function refrescarPreview() {
     btnCompartir.disabled = !lista;
     btnBorrar.disabled = notasPuntuadas().length === 0;
 
-    redibujarTarjeta(); // solo hace algo si se está viendo la pantalla 3
+    redibujarTarjeta(); // solo hace algo si se está viendo la pantalla 2
 }
 
 function mensajeCanciones(texto, cargando = false, reintentar = null) {
@@ -844,23 +840,14 @@ function mensajeCanciones(texto, cargando = false, reintentar = null) {
 function actualizarVistas() {
     const hay = titulosActuales.length > 0;
     msgCanciones.hidden = hay;
-    modos.hidden = !hay;
-    vistaUno.hidden = !hay || modoLista;
-    vistaLista.hidden = !hay || !modoLista;
+    vistaUno.hidden = !hay;
 }
 
 function actualizarEntrada() {
-    pintarLista();
     renderFoco();
 }
 
-function cambiarModo(lista) {
-    modoLista = lista;
-    modos.querySelectorAll('.seg').forEach(s => s.classList.toggle('sel', (s.dataset.modo === 'lista') === lista));
-    actualizarVistas();
-}
-
-// ---------- Modo "una canción cada vez" ----------
+// ---------- Puntuar: una canción cada vez ----------
 function crearBotonesFoco() {
     for (let v = 0; v <= 10; v++) {
         const btn = document.createElement('button');
@@ -941,53 +928,6 @@ btnPistaSiguiente.addEventListener('click', () => {
     const ultima = indiceActual === titulosActuales.length - 1;
     if (ultima && todasPuntuadas()) irAPantalla(2);
     else irA(indiceActual + 1);
-});
-
-// Cambiar entre "One by one" y "Full list"
-modos.addEventListener('click', (e) => {
-    const btn = e.target.closest('.seg');
-    if (btn) cambiarModo(btn.dataset.modo === 'lista');
-});
-
-// ---------- Modo "Full list": solo sirve para saltar a una canción ----------
-function crearFilaCancion(titulo, index) {
-    const fila = document.createElement('button');
-    fila.type = 'button';
-    fila.className = 'cancion-fila';
-    fila.dataset.i = index;
-
-    const num = document.createElement('span');
-    num.className = 'cf-num';
-    num.textContent = index + 1;
-
-    const nombre = document.createElement('span');
-    nombre.className = 'cf-nombre';
-    nombre.textContent = titulo;
-
-    const nota = document.createElement('span');
-    nota.className = 'cf-nota';
-    nota.textContent = '–';
-
-    fila.append(num, nombre, nota);
-    return fila;
-}
-
-function pintarLista() {
-    listaCanciones.querySelectorAll('.cancion-fila').forEach((fila, i) => {
-        const nota = notas[i];
-        fila.querySelector('.cf-nota').textContent = nota === null || nota === undefined ? '–' : nota;
-        fila.classList.toggle('hecho', nota !== null && nota !== undefined);
-        fila.classList.toggle('actual', i === indiceActual);
-        fila.setAttribute('aria-label',
-            `Track ${i + 1}: ${titulosActuales[i]}. ${nota === null || nota === undefined ? 'Not rated' : `Rated ${nota}`}. Tap to rate.`);
-    });
-}
-
-listaCanciones.addEventListener('click', (e) => {
-    const fila = e.target.closest('.cancion-fila');
-    if (!fila) return;
-    cambiarModo(false);          // vuelve a "One by one"...
-    irA(Number(fila.dataset.i)); // ...en la canción elegida
 });
 
 // Borrar todas las notas
@@ -1163,7 +1103,6 @@ async function buscarAlbumes(idArtista) {
     clearTimeout(timerAvance);
     selectAlbumes.disabled = true;
     selectAlbumes.innerHTML = '<option value="">Loading albums...</option>';
-    listaCanciones.innerHTML = '';
     albumTitulo = "Your Album";
     titulosActuales = [];
     notas = [];
@@ -1310,7 +1249,6 @@ async function cargarCanciones(idGrupo) {
     titulosActuales = [];
     notas = [];
     indiceActual = 0;
-    listaCanciones.innerHTML = '';
     mostrarAviso('');
     mensajeCanciones('Loading tracks…', true);
     mostrarEstado('Loading tracklist…');
@@ -1333,10 +1271,6 @@ async function cargarCanciones(idGrupo) {
         notas = titulos.map(() => null);
         indiceActual = 0;
 
-        titulos.forEach((titulo, index) => {
-            listaCanciones.appendChild(crearFilaCancion(titulo, index));
-        });
-        cambiarModo(false); // siempre se empieza en "One by one"
         actualizarVistas();
         refrescarPreview();
     } catch (err) {
@@ -1373,7 +1307,7 @@ let timerImagen;
 function invalidarImagen() {
     blobPromesa = null;
     clearTimeout(timerImagen);
-    if (pantallaActual === 3 && todasPuntuadas()) {
+    if (pantallaActual === 2 && todasPuntuadas()) {
         timerImagen = setTimeout(() => { obtenerImagen().catch(() => {}); }, 300);
     }
 }
