@@ -2,9 +2,27 @@
 // AlbumPlot - Main Script
 // ===============================
 
-const MB_BASE = "https://musicbrainz.org/ws/2";
-const CAA_BASE = "https://coverartarchive.org";
+const ITUNES_BASE = "https://itunes.apple.com";
 const SITE_URL = "damogon.github.io/album-plot/";
+
+// Insignia oficial "Listen on Apple Music" (alojada por Apple, sin modificar).
+// Si prefieres alojarla tú, descarga el SVG oficial en Apple Music Marketing Tools
+// (tools.applemediaservices.com/apple-music) y pon aquí su ruta, p. ej. "img/apple-music-badge.svg".
+const APPLE_BADGE_SRC = "https://tools.applemediaservices.com/api/badges/listen-on-apple-music/badge/en-us?size=250x83";
+
+// Programa de afiliados de Apple (opcional). Déjalos vacíos hasta que te aprueben:
+// con valor, se añaden "at" (token de afiliado) y "ct" (campaña) a los enlaces y al reproductor.
+const APPLE_AFFILIATE_TOKEN = "";
+const APPLE_CAMPAIGN_TOKEN = "";
+
+// Países con tienda de Apple Music (la API de iTunes rechaza códigos que no existan)
+const TIENDAS_APPLE = new Set((
+    "AE AG AI AL AM AO AR AT AU AZ BB BE BF BG BH BJ BM BN BO BR BS BT BW BY BZ CA CD CG CH CI CL CM CN CO CR CV " +
+    "CY CZ DE DK DM DO DZ EC EE EG ES FI FJ FM FR GA GB GD GE GH GM GR GT GW GY HK HN HR HU ID IE IL IN IQ IS IT " +
+    "JM JO JP KE KG KH KN KR KW KY KZ LA LB LC LK LR LT LU LV LY MA MD ME MG MK ML MM MN MO MR MS MT MU MV MW MX " +
+    "MY MZ NA NE NG NI NL NO NP NR NZ OM PA PE PG PH PK PL PT PW PY QA RO RS RU RW SA SB SC SE SG SI SK SL SN SR " +
+    "ST SV SZ TC TD TH TJ TM TN TO TR TT TW TZ UA UG US UY UZ VC VE VG VN VU WS XK YE ZA ZM ZW"
+).split(' '));
 
 const CARD_W = 540;                 // ancho de diseño de la tarjeta (px lógicos)
 const EXPORT_W = 1080;              // ancho real de la imagen exportada
@@ -16,6 +34,9 @@ let peticionArtista = 0; // para descartar respuestas antiguas
 let peticionAlbum = 0;
 let peticionPortada = 0;
 let titulosActuales = []; // nombres de las canciones del álbum elegido
+let pistasActuales = [];  // datos de Apple de cada canción: { titulo, trackId, previewUrl, trackViewUrl }
+let albumActual = null;   // datos de Apple del álbum elegido: { id, titulo, anio, url, art }
+let reproductorIndice = -1; // canción cuyo reproductor de Apple está abierto (-1 = ninguno)
 let notas = [];           // nota de cada canción (null = sin puntuar)
 let indiceActual = 0;     // canción en foco (modo "una cada vez")
 let timerAvance;
@@ -52,6 +73,11 @@ const albumElegido = document.getElementById('album-elegido');
 const coverElegido = document.getElementById('cover-elegido');
 const aeTitulo = document.getElementById('ae-titulo');
 const aeSub = document.getElementById('ae-sub');
+const btnEscuchar = document.getElementById('btn-escuchar');
+const badgeApple = document.getElementById('badge-apple');
+const badgeImg = document.getElementById('badge-img');
+const badgeTexto = document.getElementById('badge-texto');
+const reproductor = document.getElementById('reproductor');
 const pantallas = [null,
     document.getElementById('pantalla-1'),
     document.getElementById('pantalla-2')];
@@ -82,36 +108,139 @@ function crearPlaceholder() {
 }
 const PLACEHOLDER_COVER = crearPlaceholder();
 
-// Petición con tiempo máximo y reintentos automáticos si MusicBrainz está saturado (503/429).
-// Opciones: intentos, timeoutMs y signal (para cancelarla desde fuera: una cancelación no se reintenta).
-async function fetchJSON(url, { intentos = 3, timeoutMs = 12000, signal } = {}) {
+// ======================================================
+// API DE ITUNES (Apple): búsqueda de artistas, álbumes y canciones
+// ======================================================
+// La API de iTunes no permite fetch() desde otra web (CORS), así que se usa JSONP:
+// se añade un <script> a la API con ?callback=nombre y Apple responde llamando a esa función.
+// Solo se llama a itunes.apple.com (un dominio de confianza); nunca a direcciones elegidas por el usuario.
+let jsonpSeq = 0;
+
+function errorCancelado() {
+    return new DOMException('Aborted', 'AbortError');
+}
+
+function dormir(ms, signal) {
+    return new Promise((resolve, reject) => {
+        if (signal?.aborted) return reject(errorCancelado());
+        const alCancelar = () => { clearTimeout(t); reject(errorCancelado()); };
+        const t = setTimeout(() => { signal?.removeEventListener('abort', alCancelar); resolve(); }, ms);
+        signal?.addEventListener('abort', alCancelar, { once: true });
+    });
+}
+
+function jsonp(url, { timeoutMs = 10000, signal } = {}) {
+    return new Promise((resolve, reject) => {
+        if (signal?.aborted) return reject(errorCancelado());
+
+        const nombre = `__itunes_${Date.now().toString(36)}_${++jsonpSeq}`;
+        const script = document.createElement('script');
+        let timer;
+
+        const limpiar = (dejarFuncionVacia) => {
+            clearTimeout(timer);
+            signal?.removeEventListener('abort', alCancelar);
+            script.remove();
+            // Si la respuesta llega tarde, que encuentre una función que no haga nada (sin errores en consola)
+            if (dejarFuncionVacia) window[nombre] = () => { delete window[nombre]; };
+            else delete window[nombre];
+        };
+        const alCancelar = () => { limpiar(true); reject(errorCancelado()); };
+
+        window[nombre] = (datos) => { limpiar(false); resolve(datos); };
+        script.onerror = () => { limpiar(true); reject(new Error('No se pudo cargar la respuesta de Apple')); };
+        timer = setTimeout(() => { limpiar(true); reject(new Error('Apple tardó demasiado en responder')); }, timeoutMs);
+        signal?.addEventListener('abort', alCancelar, { once: true });
+
+        script.src = `${url}${url.includes('?') ? '&' : '?'}callback=${nombre}`;
+        script.async = true;
+        document.head.appendChild(script);
+    });
+}
+
+// La API de iTunes admite unas 20 llamadas por minuto desde una misma IP: se limita a 16
+// y, si se alcanza, la siguiente espera a que se libere un hueco.
+const LLAMADAS_POR_MINUTO = 16;
+const llamadasRecientes = [];
+
+async function esperarCupo(signal) {
+    for (;;) {
+        const ahora = Date.now();
+        while (llamadasRecientes.length && ahora - llamadasRecientes[0] > 60000) llamadasRecientes.shift();
+        if (llamadasRecientes.length < LLAMADAS_POR_MINUTO) {
+            llamadasRecientes.push(ahora);
+            return;
+        }
+        await dormir(60000 - (ahora - llamadasRecientes[0]) + 100, signal);
+    }
+}
+
+// País de la tienda de Apple: el de los idiomas del navegador (es-ES -> ES); si no hay, US.
+// Apple filtra por tienda qué álbumes y previews existen.
+function detectarTienda() {
+    const idiomas = navigator.languages?.length ? navigator.languages : [navigator.language || ''];
+    for (const l of idiomas) {
+        const region = (l.split('-')[1] || '').toUpperCase();
+        if (TIENDAS_APPLE.has(region)) return region;
+    }
+    return 'US';
+}
+const TIENDA = detectarTienda();
+
+// Llama a la API (ruta "search" o "lookup") con reintento si falla la red o Apple está saturado.
+async function apple(ruta, parametros, { intentos = 2, timeoutMs = 10000, signal } = {}) {
+    const url = `${ITUNES_BASE}/${ruta}?${new URLSearchParams({ ...parametros, country: TIENDA })}`;
     let ultimoError;
     for (let k = 0; k < intentos; k++) {
-        if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-
-        const ctrl = new AbortController();
-        const alCancelar = () => ctrl.abort();
-        signal?.addEventListener('abort', alCancelar, { once: true });
-        const timeout = setTimeout(() => ctrl.abort(), timeoutMs);
-        let fatal = false;
+        await esperarCupo(signal);
         try {
-            const res = await fetch(url, { signal: ctrl.signal });
-            if (res.ok) return await res.json();
-            ultimoError = new Error(`HTTP ${res.status} en ${url}`);
-            if (res.status !== 503 && res.status !== 429) {
-                fatal = true;
-                throw ultimoError;
-            }
+            const datos = await jsonp(url, { timeoutMs, signal });
+            return datos.results || [];
         } catch (err) {
-            if (fatal || signal?.aborted) throw err; // error no recuperable o cancelada a propósito
-            ultimoError = err; // tiempo agotado o fallo de red: se reintenta
-        } finally {
-            clearTimeout(timeout);
-            signal?.removeEventListener('abort', alCancelar);
+            if (signal?.aborted) throw err;
+            ultimoError = err;
         }
-        if (k < intentos - 1) await new Promise(r => setTimeout(r, 1000 * (k + 1)));
+        if (k < intentos - 1) await dormir(1500 * (k + 1), signal);
     }
     throw ultimoError;
+}
+
+// ---------- Enlaces a Apple Music (con el token de afiliado, si lo hay) ----------
+function urlDeApple(texto) {
+    try {
+        const u = new URL(texto);
+        return u.protocol === 'https:' && (u.hostname === 'apple.com' || u.hostname.endsWith('.apple.com')) ? u : null;
+    } catch {
+        return null;
+    }
+}
+
+function conAfiliado(u) {
+    u.searchParams.delete('uo');
+    u.searchParams.set('app', 'music');
+    if (APPLE_AFFILIATE_TOKEN) {
+        u.searchParams.set('at', APPLE_AFFILIATE_TOKEN);
+        if (APPLE_CAMPAIGN_TOKEN) u.searchParams.set('ct', APPLE_CAMPAIGN_TOKEN);
+    }
+    return u.toString();
+}
+
+function enlaceApple(url) {
+    const u = urlDeApple(url);
+    return u ? conAfiliado(u) : null;
+}
+
+// Reproductor oficial incrustable de Apple: es la misma URL de la canción con el host "embed."
+function urlReproductor(trackViewUrl) {
+    const u = urlDeApple(trackViewUrl);
+    if (!u) return null;
+    u.hostname = 'embed.music.apple.com';
+    return conAfiliado(u);
+}
+
+// La API da la portada en 100x100; Apple permite pedir otro tamaño cambiando esa parte de la URL
+function artEnTam(url, tam) {
+    return url ? url.replace(/\/\d+x\d+(bb)?\.(jpg|png|webp)$/i, `/${tam}x${tam}bb.$2`) : '';
 }
 
 function mostrarEstado(texto) {
@@ -188,6 +317,7 @@ function irAPantalla(n, registrar = true) {
     pantallas.forEach((p, i) => { if (p) p.hidden = (i !== n); });
     clearTimeout(timerAvance);
     mostrarAviso('');
+    if (n !== 1) cerrarReproductor(); // al salir de la pantalla 1, el audio se para
 
     if (registrar && cambia) history.pushState({ pantalla: n }, '');
     window.scrollTo(0, 0);
@@ -867,6 +997,7 @@ function renderFoco() {
 
     focoNum.textContent = `Track ${i + 1} of ${n}`;
     focoTitulo.textContent = titulosActuales[i];
+    sincronizarEscucha(i);
 
     focoNotas.querySelectorAll('.nota-btn').forEach(btn => {
         const activo = notas[i] === Number(btn.dataset.v);
@@ -941,6 +1072,65 @@ btnBorrar.addEventListener('click', () => {
 
 crearBotonesFoco();
 
+// ---------- Escuchar: preview oficial de Apple y enlace a Apple Music ----------
+// El reproductor (iframe de Apple) solo se crea cuando la persona pulsa "Listen":
+// hasta entonces no se contacta con embed.music.apple.com ni se instalan cookies de Apple.
+// Solo hay uno abierto a la vez, y se destruye al cambiar de canción o de pantalla.
+function cerrarReproductor() {
+    reproductor.replaceChildren();
+    reproductor.hidden = true;
+    reproductorIndice = -1;
+    btnEscuchar.textContent = '▶ Listen';
+    btnEscuchar.setAttribute('aria-expanded', 'false');
+}
+
+function abrirReproductor(i) {
+    const pista = pistasActuales[i];
+    const src = pista && pista.previewUrl ? urlReproductor(pista.trackViewUrl) : null;
+    if (!src) return;
+
+    const frame = document.createElement('iframe');
+    frame.title = `Apple Music preview: ${pista.titulo}`;
+    frame.setAttribute('allow', 'autoplay *; encrypted-media *; clipboard-write');
+    frame.setAttribute('sandbox',
+        'allow-forms allow-popups allow-same-origin allow-scripts ' +
+        'allow-storage-access-by-user-activation allow-top-navigation-by-user-activation');
+    frame.setAttribute('frameborder', '0');
+    frame.src = src;
+    reproductor.replaceChildren(frame);
+    reproductor.hidden = false;
+    reproductorIndice = i;
+    btnEscuchar.textContent = '✕ Close preview';
+    btnEscuchar.setAttribute('aria-expanded', 'true');
+}
+
+// Pone el botón "Listen" y la insignia de Apple según la canción en foco
+function sincronizarEscucha(i) {
+    if (reproductorIndice !== -1 && reproductorIndice !== i) cerrarReproductor();
+
+    const pista = pistasActuales[i];
+    btnEscuchar.hidden = !(pista && pista.previewUrl && urlReproductor(pista.trackViewUrl));
+
+    const enlace = albumActual ? enlaceApple(albumActual.url) : null;
+    badgeApple.hidden = !enlace;
+    if (enlace) {
+        badgeApple.href = enlace;
+        // La imagen de la insignia no se pide hasta que hace falta
+        if (!badgeImg.getAttribute('src')) badgeImg.src = APPLE_BADGE_SRC;
+    }
+}
+
+// Si la insignia no carga, se deja un enlace de texto (nunca una insignia imitada)
+badgeImg.addEventListener('error', () => {
+    badgeImg.hidden = true;
+    badgeTexto.hidden = false;
+});
+
+btnEscuchar.addEventListener('click', () => {
+    if (reproductorIndice === indiceActual) cerrarReproductor();
+    else abrirReproductor(indiceActual);
+});
+
 // ======================================================
 // COLOR DE ACENTO, FORMATO Y TIPO DE GRÁFICA
 // ======================================================
@@ -981,20 +1171,21 @@ document.getElementById('tipos-grafica').addEventListener('click', (e) => {
 });
 
 // ======================================================
-// 1. AUTOCOMPLETADO DE ARTISTAS
+// 1. AUTOCOMPLETADO DE ARTISTAS (API de iTunes)
 // ======================================================
-// Artistas "de propósito especial" de MusicBrainz (recopilatorios, desconocidos...):
-// no tienen álbumes de estudio, así que se ocultan. Se filtra por nombre exacto.
-const ARTISTAS_ESPECIALES = new Set([
-    "various artists", "[unknown]", "[anonymous]", "[no artist]",
-    "[dialogue]", "[traditional]", "[data]"
-]);
 const MAX_ARTISTAS = 8;
 
-function filtrarArtistas(lista) {
-    return lista
-        .filter(a => !ARTISTAS_ESPECIALES.has((a.name || '').trim().toLowerCase()))
-        .slice(0, MAX_ARTISTAS);
+// Convierte los resultados de Apple en artistas únicos
+function filtrarArtistas(resultados) {
+    const vistos = new Set();
+    const artistas = [];
+    for (const r of resultados) {
+        if (!r.artistId || !r.artistName || vistos.has(r.artistId)) continue;
+        vistos.add(r.artistId);
+        artistas.push({ id: r.artistId, name: r.artistName, disambiguation: r.primaryGenreName || '' });
+        if (artistas.length >= MAX_ARTISTAS) break;
+    }
+    return artistas;
 }
 
 const cacheArtistas = new Map(); // búsqueda -> artistas ya filtrados (repetir una búsqueda es instantáneo)
@@ -1025,9 +1216,13 @@ function pintarArtistas(artistas) {
     dropdownArtistas.innerHTML = '';
     artistas.forEach(art => {
         const item = document.createElement('div');
-        item.textContent = art.disambiguation
-            ? `${art.name} (${art.disambiguation})`
-            : art.name;
+        item.textContent = art.name;
+        if (art.disambiguation) {
+            const genero = document.createElement('span');
+            genero.textContent = ` · ${art.disambiguation}`;
+            genero.style.cssText = 'color:var(--muted);font-size:14px;';
+            item.appendChild(genero);
+        }
         item.style.cssText =
             "padding:12px 16px;cursor:pointer;border-bottom:1px solid var(--line);" +
             "font-size:16px;color:var(--ink);font-family:'Nunito',sans-serif;";
@@ -1067,44 +1262,97 @@ inputArtista.addEventListener('input', () => {
 
     mostrarMensajeDropdown('Searching…');
 
+    // Pausa algo más larga que antes: Apple limita las llamadas por minuto
     timerBusqueda = setTimeout(async () => {
         const miPeticion = peticionArtista;
         controlBusqueda = new AbortController();
         const { signal } = controlBusqueda;
 
-        // Se piden 10 para compensar los artistas especiales que se descartan
-        const url = `${MB_BASE}/artist?query=${encodeURIComponent(busqueda)}&limit=10&fmt=json`;
-
         try {
-            // Sin reintentos largos: si falla, se avisa enseguida y la siguiente tecla lanza otra búsqueda
-            const data = await fetchJSON(url, { intentos: 1, timeoutMs: 8000, signal });
+            const resultados = await apple('search',
+                { term: busqueda, entity: 'musicArtist', limit: 12 },
+                { intentos: 1, timeoutMs: 8000, signal });
             if (miPeticion !== peticionArtista) return; // llegó una respuesta más nueva
 
-            const artistas = filtrarArtistas(data.artists || []);
+            const artistas = filtrarArtistas(resultados);
             cacheArtistas.set(clave, artistas);
             pintarArtistas(artistas);
         } catch (err) {
             if (signal.aborted) return; // cancelada porque el usuario siguió escribiendo
             console.error("Error buscando artistas:", err);
             if (miPeticion === peticionArtista) {
-                mostrarMensajeDropdown("Couldn't reach MusicBrainz. Keep typing to try again.");
+                mostrarMensajeDropdown("Couldn't reach Apple Music. Keep typing to try again.");
             }
         }
-    }, 400);
+    }, 600);
 });
 
 // ======================================================
-// 2. ÁLBUMES DEL ARTISTA (solo álbumes de estudio)
+// 2. ÁLBUMES DEL ARTISTA (solo álbumes de estudio, sin singles, EPs ni ediciones repetidas)
 // ======================================================
+const PALABRAS_EDICION =
+    /\b(deluxe|expanded|remaster(ed)?|bonus|anniversary|collector'?s?|platinum|extended|reissue|edition|(explicit|clean|standard|international|bonus track) version)\b/;
+const NO_ES_ESTUDIO =
+    /(\s-\ssingle$|\s-\sep$|\bep$|\(live\b|\[live\b|\s-\slive\b|\blive (at|in|from|on)\b|\blive$|greatest hits|\bbest of\b|\bremix(es|ed)?\b|karaoke|instrumentals?\b|anthology|\bcollection\b)/;
+
+function normalizarNombre(nombre) {
+    return nombre.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+}
+
+// Quita "(Deluxe Edition)", "- Remastered 2011"... para reconocer que dos ediciones son el mismo álbum
+function claveAlbum(nombre) {
+    let t = normalizarNombre(nombre);
+    t = t.replace(/\s*[(\[][^)\]]*[)\]]/g, m => PALABRAS_EDICION.test(m) ? '' : m);
+    t = t.replace(/\s+-\s+[^-]*$/, m => PALABRAS_EDICION.test(m) ? '' : m);
+    return t.replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+function esEdicionEspecial(nombre) {
+    return claveAlbum(nombre) !== normalizarNombre(nombre).replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+// Elige qué álbumes mostrar: uno por título (la edición estándar, no la deluxe) y ordenados por fecha
+function filtrarAlbumes(resultados) {
+    const albumes = resultados.filter(r =>
+        r.wrapperType === 'collection' && r.collectionType === 'Album' && r.collectionId && r.collectionName);
+
+    const aptos = albumes.filter(r =>
+        (r.trackCount || 0) >= 4 && !NO_ES_ESTUDIO.test(normalizarNombre(r.collectionName)));
+    // Si el filtro no deja nada (artista que solo tiene EPs o singles), se muestra lo que haya
+    const base = aptos.length ? aptos : albumes;
+
+    const peor = (a, b) => { // ¿"a" es peor candidato que "b" para representar al álbum?
+        const limpiaA = a.collectionExplicitness === 'cleaned', limpiaB = b.collectionExplicitness === 'cleaned';
+        if (limpiaA !== limpiaB) return limpiaA;
+        const espA = esEdicionEspecial(a.collectionName), espB = esEdicionEspecial(b.collectionName);
+        if (espA !== espB) return espA;
+        if ((a.trackCount || 0) !== (b.trackCount || 0)) return (a.trackCount || 0) > (b.trackCount || 0);
+        return (a.releaseDate || '9999') > (b.releaseDate || '9999');
+    };
+
+    const porClave = new Map();
+    base.forEach(r => {
+        const clave = claveAlbum(r.collectionName);
+        const previo = porClave.get(clave);
+        if (!previo || peor(previo, r)) porClave.set(clave, r);
+    });
+
+    return [...porClave.values()]
+        .sort((a, b) => (a.releaseDate || '9999').localeCompare(b.releaseDate || '9999'));
+}
+
 async function buscarAlbumes(idArtista) {
     const miPeticion = ++peticionAlbum;
 
     // Reset de la interfaz
     clearTimeout(timerAvance);
+    cerrarReproductor();
     selectAlbumes.disabled = true;
     selectAlbumes.innerHTML = '<option value="">Loading albums...</option>';
     albumTitulo = "Your Album";
+    albumActual = null;
     titulosActuales = [];
+    pistasActuales = [];
     notas = [];
     indiceActual = 0;
     resetPortada();
@@ -1115,56 +1363,55 @@ async function buscarAlbumes(idArtista) {
     refrescarPreview();
 
     try {
-        const url = `${MB_BASE}/release-group?artist=${idArtista}&type=album&limit=100&fmt=json`;
-        const data = await fetchJSON(url);
+        const resultados = await apple('lookup', { id: idArtista, entity: 'album', limit: 200 });
         if (miPeticion !== peticionAlbum) return;
 
-        // Solo álbumes "puros": sin tipos secundarios (live, compilation, etc.)
-        const grupos = (data["release-groups"] || [])
-            .filter(g => g["primary-type"] === "Album" &&
-                         (!g["secondary-types"] || g["secondary-types"].length === 0))
-            .sort((a, b) => (a["first-release-date"] || "9999")
-                .localeCompare(b["first-release-date"] || "9999"));
+        const albumes = filtrarAlbumes(resultados);
 
         selectAlbumes.innerHTML = '<option value="">-- Select an Album --</option>';
 
-        if (grupos.length === 0) {
+        if (albumes.length === 0) {
             selectAlbumes.innerHTML = '<option value="">No albums found</option>';
             return;
         }
 
-        grupos.forEach(g => {
-            const year = (g["first-release-date"] || "").slice(0, 4);
+        albumes.forEach(a => {
+            const year = (a.releaseDate || '').slice(0, 4);
             const option = document.createElement('option');
-            option.value = g.id;               // ID del release-group
-            option.dataset.title = g.title;
+            option.value = a.collectionId;       // ID del álbum en Apple
+            option.dataset.title = a.collectionName;
             option.dataset.year = year;
-            option.textContent = year ? `${g.title} (${year})` : g.title;
+            option.dataset.url = a.collectionViewUrl || '';
+            option.dataset.art = a.artworkUrl100 || '';
+            option.textContent = year ? `${a.collectionName} (${year})` : a.collectionName;
             selectAlbumes.appendChild(option);
         });
 
         selectAlbumes.disabled = false;
     } catch (err) {
         console.error("Error cargando álbumes:", err);
-        selectAlbumes.innerHTML = '<option value="">Error loading albums (try again)</option>';
+        if (miPeticion === peticionAlbum) {
+            selectAlbumes.innerHTML = '<option value="">Error loading albums (try again)</option>';
+        }
     } finally {
         if (miPeticion === peticionAlbum) ocultarEstado();
     }
 }
 
 // ======================================================
-// 3. PORTADA
+// 3. PORTADA (la que da Apple, sin modificar)
 // ======================================================
 // Portada para la tarjeta (canvas): se carga con CORS para que la imagen exportada no quede "contaminada".
-// Si la portada no existe o no permite CORS, la tarjeta dibuja el cuadro "No cover".
+// Si Apple no la sirve con CORS, la tarjeta dibuja el cuadro "No cover" en lugar de fallar.
 function resetPortada() {
     ++peticionPortada;
     portadaImg = null;
 }
 
-function cargarPortada(idReleaseGroup) {
+function cargarPortada(artUrl) {
     const miId = ++peticionPortada;
     portadaImg = null;
+    if (!artUrl) return;
 
     const img = new Image();
     img.crossOrigin = "anonymous";
@@ -1178,20 +1425,20 @@ function cargarPortada(idReleaseGroup) {
         portadaImg = null;
         redibujarTarjeta();
     };
-    img.src = `${CAA_BASE}/release-group/${idReleaseGroup}/front-500`;
+    img.src = artEnTam(artUrl, 600);
 }
 
-// Portada + título del álbum elegido en el paso 2, para confirmar que es el correcto
-function mostrarAlbumElegido(idGrupo, titulo, anio) {
-    aeTitulo.textContent = titulo;
-    aeSub.textContent = [artistaNombre, anio].filter(Boolean).join(' · ');
+// Portada + título del álbum elegido en el paso 2, para confirmar que es el correcto.
+// En pantalla se muestra tal cual la sirve Apple (cuadrada, sin recortes ni capas encima).
+function mostrarAlbumElegido(album) {
+    aeTitulo.textContent = album.titulo;
+    aeSub.textContent = [artistaNombre, album.anio].filter(Boolean).join(' · ');
 
-    coverElegido.crossOrigin = "anonymous";
     coverElegido.onerror = () => {
         coverElegido.onerror = null;
         coverElegido.src = PLACEHOLDER_COVER;
     };
-    coverElegido.src = `${CAA_BASE}/release-group/${idGrupo}/front-500`;
+    coverElegido.src = album.art ? artEnTam(album.art, 200) : PLACEHOLDER_COVER;
     albumElegido.hidden = false;
 }
 
@@ -1204,36 +1451,25 @@ function ocultarAlbumElegido() {
 // ======================================================
 // 4. TRACKLIST DEL ÁLBUM
 // ======================================================
-const cacheTracks = new Map(); // idGrupo -> títulos (evita repetir peticiones)
+const cacheTracks = new Map(); // idAlbum -> canciones (evita repetir peticiones)
 
-// Dos peticiones ligeras en lugar de una pesada:
-//  1) ediciones del álbum (sin canciones) -> elegimos la edición original
-//  2) consulta directa de esa edición con sus canciones
-async function obtenerTracklist(idGrupo) {
-    if (cacheTracks.has(idGrupo)) return cacheTracks.get(idGrupo);
+// Una sola llamada: devuelve el álbum y todas sus canciones, con su preview y su enlace
+async function obtenerTracklist(idAlbum) {
+    if (cacheTracks.has(idAlbum)) return cacheTracks.get(idAlbum);
 
-    let data = await fetchJSON(
-        `${MB_BASE}/release?release-group=${idGrupo}&status=official&inc=media&limit=50&fmt=json`
-    );
-    let releases = data.releases || [];
-    if (releases.length === 0) {
-        data = await fetchJSON(
-            `${MB_BASE}/release?release-group=${idGrupo}&inc=media&limit=50&fmt=json`
-        );
-        releases = data.releases || [];
-    }
-    if (releases.length === 0) return [];
+    const resultados = await apple('lookup', { id: idAlbum, entity: 'song', limit: 200 });
+    const pistas = resultados
+        .filter(r => r.wrapperType === 'track' && r.kind === 'song' && r.trackName)
+        .sort((a, b) => (a.discNumber || 1) - (b.discNumber || 1) || (a.trackNumber || 0) - (b.trackNumber || 0))
+        .map(r => ({
+            titulo: r.trackName,
+            trackId: r.trackId,
+            previewUrl: r.previewUrl || '',
+            trackViewUrl: r.trackViewUrl || ''
+        }));
 
-    // La más antigua (edición original); a igualdad de fecha, la de menos pistas
-    const numPistas = r => (r.media || []).reduce((s, m) => s + (m["track-count"] || 0), 0) || 999;
-    releases.sort((a, b) =>
-        (a.date || "9999").localeCompare(b.date || "9999") || numPistas(a) - numPistas(b));
-
-    const release = await fetchJSON(`${MB_BASE}/release/${releases[0].id}?inc=recordings&fmt=json`);
-    const titulos = (release.media || []).flatMap(m => m.tracks || []).map(t => t.title);
-
-    if (titulos.length > 0) cacheTracks.set(idGrupo, titulos);
-    return titulos;
+    if (pistas.length > 0) cacheTracks.set(idAlbum, pistas);
+    return pistas;
 }
 
 // Si el panel de puntuación queda fuera de pantalla (móvil), lo acerca
@@ -1244,9 +1480,11 @@ function llevarAPasoPuntuar() {
     }
 }
 
-async function cargarCanciones(idGrupo) {
+async function cargarCanciones(album) {
     clearTimeout(timerAvance);
+    cerrarReproductor();
     titulosActuales = [];
+    pistasActuales = [];
     notas = [];
     indiceActual = 0;
     mostrarAviso('');
@@ -1254,21 +1492,22 @@ async function cargarCanciones(idGrupo) {
     mostrarEstado('Loading tracklist…');
     refrescarPreview();
 
-    cargarPortada(idGrupo);
+    cargarPortada(album.art);
 
     const miPeticion = ++peticionAlbum;
 
     try {
-        const titulos = await obtenerTracklist(idGrupo);
+        const pistas = await obtenerTracklist(album.id);
         if (miPeticion !== peticionAlbum) return;
 
-        if (titulos.length === 0) {
+        if (pistas.length === 0) {
             mensajeCanciones('No tracks found for this album.');
             return;
         }
 
-        titulosActuales = titulos;
-        notas = titulos.map(() => null);
+        pistasActuales = pistas;
+        titulosActuales = pistas.map(p => p.titulo);
+        notas = pistas.map(() => null);
         indiceActual = 0;
 
         actualizarVistas();
@@ -1276,8 +1515,8 @@ async function cargarCanciones(idGrupo) {
     } catch (err) {
         console.error("Error cargando canciones:", err);
         if (miPeticion === peticionAlbum) {
-            mensajeCanciones("Couldn't load the tracks. MusicBrainz may be busy.", false,
-                () => cargarCanciones(idGrupo));
+            mensajeCanciones("Couldn't load the tracks. Apple Music may be busy.", false,
+                () => cargarCanciones(album));
         }
     } finally {
         if (miPeticion === peticionAlbum) ocultarEstado();
@@ -1285,14 +1524,21 @@ async function cargarCanciones(idGrupo) {
 }
 
 selectAlbumes.addEventListener('change', () => {
-    const idGrupo = selectAlbumes.value;
-    if (!idGrupo) return;
+    const idAlbum = selectAlbumes.value;
+    if (!idAlbum) return;
 
     const opcion = selectAlbumes.options[selectAlbumes.selectedIndex];
     const titulo = opcion.dataset.title || opcion.text;
     albumTitulo = titulo;
-    mostrarAlbumElegido(idGrupo, titulo, opcion.dataset.year);
-    cargarCanciones(idGrupo);
+    albumActual = {
+        id: idAlbum,
+        titulo,
+        anio: opcion.dataset.year,
+        url: opcion.dataset.url,
+        art: opcion.dataset.art
+    };
+    mostrarAlbumElegido(albumActual);
+    cargarCanciones(albumActual);
     llevarAPasoPuntuar(); // en móvil, el paso 2 (con la portada) queda fuera de pantalla
 });
 
