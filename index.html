@@ -225,17 +225,13 @@
     .swatch:focus-visible,
     .seg:focus-visible,
     .chip:focus-visible,
-    .cancion-fila:focus-visible,
     .sec-button:focus-visible,
     .big-button:focus-visible {
       outline: 3px solid var(--ink);
       outline-offset: 2px;
     }
 
-    /* ---------- Modo "una canción cada vez" ---------- */
-    .modos { margin-bottom: 18px; }
-    .seg-mini { padding: 8px 10px; font-size: 15px; }
-
+    /* ---------- Puntuar: una canción cada vez ---------- */
     .foco { text-align: center; padding: 6px 0 2px; }
     .foco-num {
       font-family: 'Oswald', sans-serif;
@@ -272,51 +268,6 @@
     }
     .foco-hint { margin: 12px 0 0; font-size: 14px; color: var(--muted); }
     .foco-nav { display: flex; gap: 12px; margin-top: 16px; }
-
-    /* ---------- Modo "Full list": solo para saltar a otra canción ---------- */
-    .lista-hint { margin: 0 0 12px; text-align: center; font-size: 14px; color: var(--muted); }
-    .cancion-fila {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      width: 100%;
-      padding: 10px 12px;
-      border: 2px solid var(--line);
-      border-radius: 12px;
-      background: #fff;
-      color: var(--ink);
-      font: inherit;
-      text-align: left;
-      cursor: pointer;
-    }
-    .cancion-fila + .cancion-fila { margin-top: 8px; }
-    @media (hover: hover) {
-      .cancion-fila:hover { border-color: var(--ink); }
-    }
-    .cancion-fila.actual { border-color: var(--ink); box-shadow: 0 0 0 3px var(--c); }
-    .cf-num {
-      min-width: 24px;
-      font-family: 'Oswald', sans-serif;
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--muted);
-    }
-    .cf-nombre { flex: 1; min-width: 0; font-size: 16px; font-weight: 700; overflow-wrap: anywhere; }
-    .cf-nota {
-      min-width: 38px;
-      height: 30px;
-      padding: 0 8px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      border: 2px solid var(--line);
-      border-radius: 999px;
-      font-family: 'Oswald', sans-serif;
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--muted);
-    }
-    .cancion-fila.hecho .cf-nota { background: var(--c); color: var(--on-c); border-color: var(--ink); }
 
     /* ---------- Personalización ---------- */
     .opcion-label {
@@ -378,14 +329,26 @@
     .seg.sel { background: var(--c); color: var(--on-c); box-shadow: 0 3px 0 var(--ink); }
 
     /* ---------- Tarjeta final (canvas: lo que se ve es exactamente lo que se descarga) ---------- */
+    /* Se queda fija arriba mientras se hace scroll por las opciones, así el resultado se ve al elegir */
+    .preview-fija {
+      position: sticky;
+      top: 8px;
+      z-index: 5;
+      margin: 12px 0 20px;
+      padding: 8px 0 14px;
+      background: #fff;
+      border-bottom: 2px dashed var(--line);
+    }
     #tarjeta {
       display: block;
-      width: 100%;
-      max-width: 540px;
+      width: auto;
       height: auto;
-      margin: 18px auto 0;
+      max-width: 100%;
+      max-height: 46vh;                 /* respaldo */
+      max-height: min(46vh, 540px);     /* nunca ocupa más de la mitad de la pantalla */
+      margin: 0 auto;
       background: #fff;
-      border-radius: 22px;
+      border-radius: 18px;
       box-shadow: 0 0 0 2px var(--line);
     }
 
@@ -529,11 +492,6 @@
 
         <p class="msg" id="msg-canciones">Select an album to generate the tracklist.</p>
 
-        <div class="segmentado modos" id="modos" hidden>
-          <button type="button" class="seg seg-mini sel" data-modo="uno">One by one</button>
-          <button type="button" class="seg seg-mini" data-modo="lista">Full list</button>
-        </div>
-
         <!-- Vista: una canción cada vez -->
         <div id="vista-uno" hidden>
           <div class="foco">
@@ -549,12 +507,6 @@
           </div>
         </div>
 
-        <!-- Vista: lista completa (solo para saltar a una canción) -->
-        <div id="vista-lista" hidden>
-          <p class="lista-hint">Tap a track to go and rate it.</p>
-          <div id="lista-canciones"></div>
-        </div>
-
         <div class="progreso">
           <div class="progreso-barra"><div class="progreso-fill" id="progreso-fill"></div></div>
           <p class="progreso-texto" id="progreso-texto" aria-live="polite">Select an album to start rating.</p>
@@ -568,11 +520,16 @@
       </section>
     </div>
 
-    <!-- ===================== PANTALLA 2: personalizar ===================== -->
+    <!-- ===================== PANTALLA 2: personalizar y ver el resultado ===================== -->
     <div class="pantalla" id="pantalla-2" hidden>
       <section class="panel">
         <div class="step">Step 3</div>
         <h2>Make It Yours</h2>
+
+        <!-- Vista previa en vivo: se queda arriba mientras eliges las opciones -->
+        <div class="preview-fija">
+          <canvas id="tarjeta" role="img" aria-label="Your AlbumPlot card"></canvas>
+        </div>
 
         <div class="opcion-label">Accent color</div>
         <div class="swatches" id="swatches">
@@ -597,19 +554,6 @@
           <button type="button" class="seg" data-fmt="story">Story 9:16</button>
         </div>
 
-        <div class="nav-pantalla">
-          <button type="button" class="sec-button" data-ir="1">← Back</button>
-          <button type="button" class="sec-button primario" data-ir="3">See my plot →</button>
-        </div>
-      </section>
-    </div>
-
-    <!-- ===================== PANTALLA 3: resultado ===================== -->
-    <div class="pantalla" id="pantalla-3" hidden>
-      <section class="panel">
-        <div class="step">Step 4</div>
-        <h2>Your Rating</h2>
-
         <div class="opcion-label">Chart style</div>
         <div class="segmentado" id="tipos-grafica">
           <button type="button" class="seg sel" data-grafica="linea">Line</button>
@@ -617,13 +561,11 @@
           <button type="button" class="seg" data-grafica="curva">Smooth</button>
         </div>
 
-        <canvas id="tarjeta" role="img" aria-label="Your AlbumPlot card"></canvas>
-
         <button type="button" class="big-button" id="btn-descargar" disabled>Save Image</button>
 
         <div class="acciones-sec">
           <button type="button" class="sec-button" id="btn-compartir" hidden disabled>Share</button>
-          <button type="button" class="sec-button" data-ir="2">← Back</button>
+          <button type="button" class="sec-button" data-ir="1">← Back</button>
         </div>
 
         <p class="aviso" id="aviso" aria-live="polite"></p>
@@ -633,6 +575,6 @@
   </main>
 </div>
 
-<script src="app.js?v=10"></script>
+<script src="app.js?v=11"></script>
 </body>
 </html>
